@@ -1,0 +1,279 @@
+<!DOCTYPE html>
+<html class="dark" lang="zh-CN"><head>
+<meta charset="utf-8"/>
+<meta content="width=device-width, initial-scale=1.0" name="viewport"/>
+<title>测试运行界面 - UI 自动化平台</title>
+<link href="https://fonts.googleapis.com" rel="preconnect"/>
+<link crossorigin="" href="https://fonts.gstatic.com" rel="preconnect"/>
+<link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@300;400;500;600;700&amp;family=Noto+Sans:wght@300;400;500;600;700&amp;display=swap" rel="stylesheet"/>
+<link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:wght,FILL@100..700,0..1&amp;display=swap" rel="stylesheet"/>
+<script src="https://cdn.tailwindcss.com?plugins=forms,container-queries"></script>
+<script id="tailwind-config">
+        tailwind.config = {
+            darkMode: "class",
+            theme: {
+                extend: {
+                    colors: {
+                        "primary": "#137fec",
+                        "background-light": "#f6f7f8",
+                        "background-dark": "#101922",
+                        "surface-dark": "#1a232e",
+                        "border-dark": "#2b3d52",
+                    },
+                    fontFamily: {
+                        "display": ["Space Grotesk", "Noto Sans", "sans-serif"],
+                        "mono": ["Space Grotesk", "monospace"]
+                    },
+                    borderRadius: {"DEFAULT": "0.25rem", "lg": "0.5rem", "xl": "0.75rem", "full": "9999px"},
+                },
+            },
+        }
+    </script>
+<style>.custom-scrollbar::-webkit-scrollbar {
+            width: 8px;
+            height: 8px;
+        }
+        .custom-scrollbar::-webkit-scrollbar-track {
+            background: #111a22; 
+        }
+        .custom-scrollbar::-webkit-scrollbar-thumb {
+            background: #2b3d52; 
+            border-radius: 4px;
+        }
+        .custom-scrollbar::-webkit-scrollbar-thumb:hover {
+            background: #3e526a; 
+        }
+        .pulse-dot {
+            animation: pulse-glow 2s cubic-bezier(0.4, 0, 0.6, 1) infinite;
+        }
+        @keyframes pulse-glow {
+            0%, 100% { opacity: 1; box-shadow: 0 0 0 0px rgba(19, 127, 236, 0.7); }
+            50% { opacity: .5; box-shadow: 0 0 0 6px rgba(19, 127, 236, 0); }
+        }
+    </style>
+</head>
+<body class="bg-background-light dark:bg-background-dark text-slate-900 dark:text-white font-display h-screen flex flex-col overflow-hidden selection:bg-primary/30">
+<header class="flex-none flex items-center justify-between whitespace-nowrap border-b border-solid border-slate-200 dark:border-[#233648] px-6 py-3 bg-white dark:bg-[#111a22]">
+<div class="flex items-center gap-4">
+<div class="size-8 flex items-center justify-center text-primary">
+<span class="material-symbols-outlined text-3xl">smart_toy</span>
+</div>
+<div>
+<h2 class="text-lg font-bold leading-tight tracking-tight">UI 自动化平台</h2>
+<div class="flex items-center gap-2 text-xs text-slate-500 dark:text-slate-400">
+<span class="inline-block size-2 rounded-full bg-green-500"></span>
+<span>系统正常</span>
+</div>
+</div>
+</div>
+<div class="flex gap-3">
+<button class="flex items-center justify-center gap-2 rounded-lg h-9 px-4 bg-slate-100 dark:bg-[#233648] hover:bg-slate-200 dark:hover:bg-[#2f455a] text-sm font-bold transition-colors">
+<span class="material-symbols-outlined text-[18px]">add</span>
+<span>新建测试</span>
+</button>
+<button class="flex items-center justify-center gap-2 rounded-lg h-9 px-4 bg-slate-100 dark:bg-[#233648] hover:bg-slate-200 dark:hover:bg-[#2f455a] text-sm font-bold transition-colors">
+<span class="material-symbols-outlined text-[18px]">download</span>
+<span>导出报告</span>
+</button>
+</div>
+</header>
+<div class="flex-1 flex overflow-hidden">
+<aside class="w-[320px] flex-none flex flex-col border-r border-slate-200 dark:border-[#233648] bg-white dark:bg-[#111a22]">
+<div class="p-4 border-b border-slate-200 dark:border-[#233648]">
+<h3 class="font-bold text-base mb-1">测试步骤时间轴</h3>
+<p class="text-xs text-slate-500 dark:text-slate-400">共 12 个步骤 · 剩余 5 个</p>
+</div>
+<div class="flex-1 overflow-y-auto custom-scrollbar p-4 space-y-4">
+<div class="relative pl-6 pb-4 border-l-2 border-green-500/50">
+<div class="absolute -left-[9px] top-0 bg-background-light dark:bg-background-dark">
+<span class="material-symbols-outlined text-green-500 text-lg">check_circle</span>
+</div>
+<div class="flex flex-col gap-1">
+<span class="text-xs font-medium text-slate-500 dark:text-slate-400">步骤 1 · 00:02s</span>
+<p class="text-sm font-bold">初始化浏览器环境</p>
+<span class="inline-flex items-center px-2 py-0.5 rounded text-[10px] font-medium bg-green-500/10 text-green-500 w-fit">成功</span>
+</div>
+</div>
+<div class="relative pl-6 pb-4 border-l-2 border-green-500/50">
+<div class="absolute -left-[9px] top-0 bg-background-light dark:bg-background-dark">
+<span class="material-symbols-outlined text-green-500 text-lg">check_circle</span>
+</div>
+<div class="flex flex-col gap-1">
+<span class="text-xs font-medium text-slate-500 dark:text-slate-400">步骤 2 · 00:05s</span>
+<p class="text-sm font-bold">导航至登陆页面</p>
+<span class="inline-flex items-center px-2 py-0.5 rounded text-[10px] font-medium bg-green-500/10 text-green-500 w-fit">成功</span>
+</div>
+</div>
+<div class="relative pl-6 pb-4 border-l-2 border-primary">
+<div class="absolute -left-[9px] top-0 bg-background-light dark:bg-background-dark">
+<span class="material-symbols-outlined text-primary text-lg animate-spin">progress_activity</span>
+</div>
+<div class="flex flex-col gap-2 p-3 rounded-lg bg-primary/10 border border-primary/20">
+<div class="flex justify-between items-start">
+<span class="text-xs font-bold text-primary">当前步骤</span>
+<span class="pulse-dot w-2 h-2 rounded-full bg-primary"></span>
+</div>
+<p class="text-sm font-bold text-white">识别并输入用户名</p>
+<p class="text-xs text-slate-400">AI 正在分析 DOM 结构以定位输入框...</p>
+</div>
+</div>
+<div class="relative pl-6 pb-4 border-l-2 border-slate-200 dark:border-[#233648]">
+<div class="absolute -left-[9px] top-0 bg-background-light dark:bg-background-dark">
+<span class="material-symbols-outlined text-slate-400 text-lg">radio_button_unchecked</span>
+</div>
+<div class="flex flex-col gap-1 opacity-50">
+<span class="text-xs font-medium">步骤 4</span>
+<p class="text-sm font-bold">输入密码</p>
+</div>
+</div>
+<div class="relative pl-6 pb-4 border-l-2 border-slate-200 dark:border-[#233648]">
+<div class="absolute -left-[9px] top-0 bg-background-light dark:bg-background-dark">
+<span class="material-symbols-outlined text-slate-400 text-lg">radio_button_unchecked</span>
+</div>
+<div class="flex flex-col gap-1 opacity-50">
+<span class="text-xs font-medium">步骤 5</span>
+<p class="text-sm font-bold">点击登录按钮</p>
+</div>
+</div>
+</div>
+</aside>
+<main class="flex-1 flex flex-col min-w-0 bg-slate-50 dark:bg-[#0c1219]">
+<div class="flex-none p-5 pb-0">
+<div class="flex flex-wrap items-end justify-between gap-4 mb-6">
+<div class="flex flex-col gap-2">
+<div class="flex items-center gap-3">
+<h1 class="text-2xl font-bold tracking-tight text-white">正在运行: 登录流程验证</h1>
+<span class="px-2 py-0.5 rounded text-xs font-bold bg-primary text-white border border-primary/20">运行中</span>
+</div>
+<p class="text-slate-500 dark:text-[#92adc9] text-sm font-medium">会话 ID: #8492-A  |  目标环境: 生产环境 (Production)</p>
+</div>
+<div class="flex items-center gap-6">
+<div class="flex items-center gap-3 bg-[#1a232e] px-4 py-2 rounded-lg border border-[#2b3d52]">
+<span class="material-symbols-outlined text-primary">timer</span>
+<div class="font-mono text-xl font-bold text-white tracking-widest">00:04:25</div>
+</div>
+<div class="flex gap-2">
+<button class="flex items-center gap-2 h-10 px-5 rounded-lg bg-[#233648] hover:bg-[#2f455a] text-white text-sm font-bold border border-transparent hover:border-white/10 transition-all">
+<span class="material-symbols-outlined text-lg">pause</span>
+                                暂停
+                            </button>
+<button class="flex items-center gap-2 h-10 px-5 rounded-lg bg-red-500/10 hover:bg-red-500/20 text-red-500 text-sm font-bold border border-red-500/20 transition-all">
+<span class="material-symbols-outlined text-lg">stop</span>
+                                终止
+                            </button>
+</div>
+</div>
+</div>
+<div class="flex flex-col gap-2 mb-2">
+<div class="flex justify-between text-xs font-medium text-slate-400">
+<span>总体进度</span>
+<span>45%</span>
+</div>
+<div class="h-1.5 w-full bg-[#1a232e] rounded-full overflow-hidden">
+<div class="h-full bg-primary rounded-full transition-all duration-500" style="width: 45%"></div>
+</div>
+</div>
+</div>
+<div class="flex-1 p-5 pt-4 flex gap-5 overflow-hidden">
+<div class="flex-[3] flex flex-col bg-white dark:bg-[#1a232e] rounded-xl border border-slate-200 dark:border-[#2b3d52] overflow-hidden shadow-lg">
+<div class="flex items-center justify-between px-4 py-3 border-b border-slate-200 dark:border-[#2b3d52] bg-slate-50 dark:bg-[#151d26]">
+<div class="flex items-center gap-2">
+<span class="relative flex h-2 w-2">
+<span class="animate-ping absolute inline-flex h-full w-full rounded-full bg-red-400 opacity-75"></span>
+<span class="relative inline-flex rounded-full h-2 w-2 bg-red-500"></span>
+</span>
+<span class="text-xs font-bold uppercase tracking-wider text-slate-500 dark:text-slate-400">实时预览</span>
+</div>
+<div class="flex gap-1.5">
+<div class="w-2.5 h-2.5 rounded-full bg-slate-300 dark:bg-[#2b3d52]"></div>
+<div class="w-2.5 h-2.5 rounded-full bg-slate-300 dark:bg-[#2b3d52]"></div>
+<div class="w-2.5 h-2.5 rounded-full bg-slate-300 dark:bg-[#2b3d52]"></div>
+</div>
+</div>
+<div class="flex-1 relative bg-slate-100 dark:bg-[#0c1219] flex items-center justify-center overflow-hidden group">
+<div class="absolute inset-0 opacity-20 pointer-events-none" style="background-image: radial-gradient(#2b3d52 1px, transparent 1px); background-size: 20px 20px;"></div>
+<img alt="笔记本电脑屏幕上的现代极简登录表单截图" class="w-full h-full object-cover object-top opacity-90 transition-opacity duration-300" data-alt="Screenshot of a modern minimalist login form on a laptop screen" src="https://lh3.googleusercontent.com/aida-public/AB6AXuBMGGNLE34tea2Upr6k6jzeVpeHGxroSz2nCo8Cq9pRzug4HhcSAOxjUOv_1Deny6CU5NIdgpxvtfMoqxiVSEPjev0Vy2CDsSNMfYK4B0Too1MuhJ8Wy46w6oT1oPWZMuMlogFbzs7dgsK9mAIpimzfCyibaNW_fSuGhbKYdHkJ20LaoBS9FdNyo2WA3NupR36rKnBayFps6sxvqc_nr40J5yAIQDw0ENtEt0vK36Eoy_trmLhJwa_dXsc1ifqwxNAec08x-DJmYJE"/>
+<div class="absolute top-[35%] left-[40%] w-[20%] h-[40px] border-2 border-primary bg-primary/10 rounded pointer-events-none flex items-center justify-center">
+<span class="absolute -top-6 left-0 bg-primary text-white text-[10px] px-1.5 py-0.5 rounded">输入框 #username</span>
+</div>
+<div class="absolute bottom-4 right-4 bg-black/70 text-white text-xs px-2 py-1 rounded backdrop-blur-sm">
+                            1920 x 1080
+                        </div>
+</div>
+</div>
+<div class="flex-[2] flex flex-col bg-[#111a22] rounded-xl border border-[#2b3d52] overflow-hidden shadow-lg">
+<div class="flex items-center justify-between px-4 py-3 border-b border-[#2b3d52] bg-[#151d26]">
+<div class="flex items-center gap-2">
+<span class="material-symbols-outlined text-slate-400 text-sm">terminal</span>
+<span class="text-xs font-bold uppercase tracking-wider text-slate-300">系统日志 / MCP 工具</span>
+</div>
+<div class="flex gap-2">
+<button class="text-slate-500 hover:text-white transition-colors"><span class="material-symbols-outlined text-base">vertical_align_bottom</span></button>
+<button class="text-slate-500 hover:text-white transition-colors"><span class="material-symbols-outlined text-base">filter_list</span></button>
+</div>
+</div>
+<div class="flex-1 overflow-y-auto custom-scrollbar p-4 font-mono text-sm leading-relaxed space-y-2">
+<div class="flex gap-3 text-slate-500">
+<span class="shrink-0 text-[10px] pt-1">10:04:15</span>
+<div>
+<span class="text-primary font-bold">[系统]</span>
+<span class="text-slate-400">会话初始化完成。ID: #8492-A</span>
+</div>
+</div>
+<div class="flex gap-3 text-slate-500">
+<span class="shrink-0 text-[10px] pt-1">10:04:16</span>
+<div>
+<span class="text-primary font-bold">[系统]</span>
+<span class="text-slate-400">浏览器已启动 (无头模式: 关闭)</span>
+</div>
+</div>
+<div class="flex gap-3 text-slate-500">
+<span class="shrink-0 text-[10px] pt-1">10:04:18</span>
+<div>
+<span class="text-purple-400 font-bold">[AI 智能体]</span>
+<span class="text-slate-300">分析页面结构中... 发现 14 个交互元素。目标定位: "登录"。</span>
+</div>
+</div>
+<div class="flex gap-3 text-slate-500 bg-[#1a232e] -mx-2 px-2 py-1 rounded">
+<span class="shrink-0 text-[10px] pt-1">10:04:20</span>
+<div>
+<span class="text-orange-400 font-bold">[MCP]</span>
+<span class="text-orange-200/80">工具调用: </span>
+<span class="text-slate-300 break-all">click_element(selector="#login-btn", wait_for_nav=true)</span>
+</div>
+</div>
+<div class="flex gap-3 text-slate-500">
+<span class="shrink-0 text-[10px] pt-1">10:04:22</span>
+<div>
+<span class="text-primary font-bold">[系统]</span>
+<span class="text-slate-400">开始页面跳转...</span>
+</div>
+</div>
+<div class="flex gap-3 text-slate-500">
+<span class="shrink-0 text-[10px] pt-1">10:04:23</span>
+<div>
+<span class="text-yellow-400 font-bold">[AI 异常处理]</span>
+<span class="text-slate-300">检测到页面加载延迟，动态调整等待超时时间 (+2s)。</span>
+</div>
+</div>
+<div class="flex gap-3 text-slate-500">
+<span class="shrink-0 text-[10px] pt-1">10:04:24</span>
+<div>
+<span class="text-purple-400 font-bold">[AI 智能体]</span>
+<span class="text-slate-300">正在扫描输入框 "username"...</span>
+</div>
+</div>
+<div class="flex gap-3 text-slate-500 mt-4">
+<span class="shrink-0 text-[10px] pt-1">10:04:25</span>
+<div class="flex items-center gap-2">
+<span class="w-1.5 h-4 bg-primary animate-pulse"></span>
+<span class="text-slate-500 italic">等待 MCP 工具响应...</span>
+</div>
+</div>
+</div>
+</div>
+</div>
+</main>
+</div>
+
+</body></html>
