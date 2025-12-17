@@ -354,8 +354,135 @@ export class SmartStepExecutor {
   }
 
   /**
-   * 执行页面功能测试
+   * 执行单个测试步骤
    * @author Jiane
+   */
+  private static async executeTestStep(
+    step: any,
+    sessionId: string,
+    stepIndex: number
+  ): Promise<{ success: boolean; result?: any; error?: string }> {
+    try {
+      const action = step.action?.toLowerCase() || ''
+      const selector = step.selector || ''
+      const value = step.value || ''
+      const description = step.description || ''
+
+      logAI(`[测试步骤 ${stepIndex + 1}] 执行: ${description}`, getModelName(), sessionId)
+
+      switch (action) {
+        case 'fill':
+        case 'input':
+          logMCP(`填充输入框: ${selector} = ${value}`, 'playwright', sessionId)
+          const fillResult = await mcpManager.callPlaywright(
+            'fill',
+            { selector, value },
+            sessionId
+          )
+          if (!fillResult.success) {
+            return { success: false, error: `填充失败: ${fillResult.error}` }
+          }
+          logAI(`✓ 填充成功: ${selector}`, getModelName(), sessionId)
+          break
+
+        case 'click':
+          logMCP(`点击元素: ${selector}`, 'playwright', sessionId)
+          const clickResult = await mcpManager.callPlaywright(
+            'click',
+            { selector },
+            sessionId
+          )
+          if (!clickResult.success) {
+            return { success: false, error: `点击失败: ${clickResult.error}` }
+          }
+          logAI(`✓ 点击成功: ${selector}`, getModelName(), sessionId)
+          await new Promise(resolve => setTimeout(resolve, 500))
+          break
+
+        case 'select':
+          logMCP(`选择下拉框: ${selector} = ${value}`, 'playwright', sessionId)
+          const selectResult = await mcpManager.callPlaywright(
+            'select',
+            { selector, value },
+            sessionId
+          )
+          if (!selectResult.success) {
+            return { success: false, error: `选择失败: ${selectResult.error}` }
+          }
+          logAI(`✓ 选择成功: ${selector}`, getModelName(), sessionId)
+          break
+
+        case 'hover':
+          logMCP(`悬停元素: ${selector}`, 'playwright', sessionId)
+          const hoverResult = await mcpManager.callPlaywright(
+            'hover',
+            { selector },
+            sessionId
+          )
+          if (!hoverResult.success) {
+            return { success: false, error: `悬停失败: ${hoverResult.error}` }
+          }
+          logAI(`✓ 悬停成功: ${selector}`, getModelName(), sessionId)
+          break
+
+        case 'wait':
+          const waitTime = parseInt(value) || 1000
+          logAI(`等待 ${waitTime}ms...`, getModelName(), sessionId)
+          await new Promise(resolve => setTimeout(resolve, waitTime))
+          logAI(`✓ 等待完成`, getModelName(), sessionId)
+          break
+
+        case 'verify':
+        case 'check':
+          logMCP(`验证元素: ${selector}`, 'playwright', sessionId)
+          const verifyResult = await mcpManager.callPlaywright(
+            'evaluate',
+            {
+              script: `
+                (function() {
+                  const el = document.querySelector('${selector}');
+                  if (!el) return { found: false };
+                  return {
+                    found: true,
+                    visible: el.offsetParent !== null,
+                    text: el.textContent?.substring(0, 100),
+                    value: el.value
+                  };
+                })()
+              `
+            },
+            sessionId
+          )
+          if (!verifyResult.success || !verifyResult.data?.found) {
+            return { success: false, error: `验证失败: 元素未找到 ${selector}` }
+          }
+          logAI(`✓ 验证成功: ${selector}`, getModelName(), sessionId)
+          break
+
+        default:
+          logAI(`⚠ 未知操作类型: ${action}`, getModelName(), sessionId)
+          return { success: false, error: `未知操作类型: ${action}` }
+      }
+
+      return { success: true, result: { action, selector, value } }
+    } catch (error) {
+      const errorMsg = error instanceof Error ? error.message : String(error)
+      return { success: false, error: errorMsg }
+    }
+  }
+
+  /**
+   * 执行页面功能测试 - 改进版（递归执行测试步骤）
+   * @author Jiane
+   * 
+   * 新流程：
+   * 1. 获取页面元素和上下文
+   * 2. AI分析页面功能
+   * 3. 生成测试步骤
+   * 4. [递归] 逐个执行每个测试步骤
+   * 5. 验证每个步骤的执行结果
+   * 6. 如果步骤失败，AI生成补救步骤
+   * 7. 继续执行下一个步骤
    */
   static async executePageFunctionalityTest(
     context: StepExecutionContext,
@@ -386,40 +513,113 @@ export class SmartStepExecutor {
 
       logAI(`[步骤2] AI分析完成，生成了 ${analysisResult.testSteps.length} 个测试步骤`, getModelName(), sessionId)
 
-      if (analysisResult.testSteps.length > 0) {
-        logAI(`测试步骤已生成，无需二次处理`, getModelName(), sessionId)
-        return {
-          success: true,
-          data: {
-            elements: analysisResult.elements,
-            analysis: analysisResult.analysis,
-            testSteps: analysisResult.testSteps
-          },
-          duration: Date.now() - startTime
+      let testSteps: any[] = analysisResult.testSteps || []
+
+      if (testSteps.length === 0) {
+        logAI(`[步骤3] 尝试从分析结果中解析测试步骤...`, getModelName(), sessionId)
+        
+        try {
+          const jsonMatch = analysisResult.analysis.match(/\{[\s\S]*\}/)
+          if (jsonMatch) {
+            const parsed = JSON.parse(jsonMatch[0])
+            testSteps = parsed.testSteps || parsed.steps || []
+          }
+        } catch (e) {
+          logAI(`解析失败，使用原始分析结果`, getModelName(), sessionId)
         }
       }
 
-      logAI(`[步骤3] 尝试从分析结果中解析测试步骤...`, getModelName(), sessionId)
-      
-      let testSteps: any[] = []
-      try {
-        const jsonMatch = analysisResult.analysis.match(/\{[\s\S]*\}/)
-        if (jsonMatch) {
-          const parsed = JSON.parse(jsonMatch[0])
-          testSteps = parsed.testSteps || parsed.steps || []
+      logAI(`[步骤3] 开始递归执行 ${testSteps.length} 个测试步骤...`, getModelName(), sessionId)
+
+      // 递归执行每个测试步骤
+      const executionResults: any[] = []
+      let successCount = 0
+      let failureCount = 0
+
+      for (let i = 0; i < testSteps.length; i++) {
+        const step = testSteps[i]
+        logAI(`\n[执行进度] ${i + 1}/${testSteps.length}`, getModelName(), sessionId)
+
+        const stepResult = await this.executeTestStep(step, sessionId, i)
+
+        if (stepResult.success) {
+          successCount++
+          executionResults.push({
+            index: i + 1,
+            status: 'success',
+            step: step.description,
+            result: stepResult.result
+          })
+          logAI(`✓ 步骤 ${i + 1} 执行成功`, getModelName(), sessionId)
+        } else {
+          failureCount++
+          executionResults.push({
+            index: i + 1,
+            status: 'failed',
+            step: step.description,
+            error: stepResult.error
+          })
+          logAI(`✗ 步骤 ${i + 1} 执行失败: ${stepResult.error}`, getModelName(), sessionId)
+
+          // 尝试生成补救步骤
+          logAI(`[补救] 尝试为失败的步骤生成补救方案...`, getModelName(), sessionId)
+          
+          // 获取当前页面状态
+          const pageStateResult = await mcpManager.callPlaywright(
+            'get_visible_html',
+            {},
+            sessionId
+          )
+
+          if (pageStateResult.success) {
+            const aiClient = getAIClient()
+            const recoveryAnalysis = await aiClient.generateRecoverySteps(
+              pageStateResult.data || '',
+              step.description,
+              stepResult.error || '',
+              sessionId
+            )
+
+            logAI(`[补救] AI建议: ${recoveryAnalysis.substring(0, 200)}...`, getModelName(), sessionId)
+
+            // 尝试执行补救步骤
+            try {
+              const recoverySteps = this.parseRecoverySteps(recoveryAnalysis)
+              for (const recoveryStep of recoverySteps) {
+                const recoveryResult = await this.executeTestStep(recoveryStep, sessionId, i)
+                if (recoveryResult.success) {
+                  logAI(`✓ 补救步骤执行成功`, getModelName(), sessionId)
+                  successCount++
+                  failureCount--
+                  executionResults[executionResults.length - 1].status = 'recovered'
+                  break
+                }
+              }
+            } catch (e) {
+              logAI(`[补救] 补救步骤执行失败，继续下一步...`, getModelName(), sessionId)
+            }
+          }
         }
-      } catch (e) {
-        logAI(`解析失败，返回原始分析结果`, getModelName(), sessionId)
+
+        // 步骤间延迟
+        await new Promise(resolve => setTimeout(resolve, 300))
       }
 
-      logAI(`测试步骤生成完成: ${testSteps.length}个步骤`, getModelName(), sessionId)
+      logAI(`\n[执行总结] 成功: ${successCount}, 失败: ${failureCount}, 总计: ${testSteps.length}`, getModelName(), sessionId)
 
       return {
         success: true,
         data: {
           elements: analysisResult.elements,
           analysis: analysisResult.analysis,
-          testSteps: testSteps
+          testSteps: testSteps,
+          executionResults: executionResults,
+          summary: {
+            total: testSteps.length,
+            success: successCount,
+            failed: failureCount,
+            successRate: testSteps.length > 0 ? ((successCount / testSteps.length) * 100).toFixed(2) + '%' : '0%'
+          }
         },
         duration: Date.now() - startTime
       }
@@ -432,6 +632,23 @@ export class SmartStepExecutor {
         duration: Date.now() - startTime
       }
     }
+  }
+
+  /**
+   * 解析补救步骤
+   * @author Jiane
+   */
+  private static parseRecoverySteps(analysis: string): any[] {
+    try {
+      const jsonMatch = analysis.match(/\{[\s\S]*\}/)
+      if (jsonMatch) {
+        const parsed = JSON.parse(jsonMatch[0])
+        return parsed.steps || parsed.recoverySteps || []
+      }
+    } catch (e) {
+      // 解析失败，返回空数组
+    }
+    return []
   }
 
   /**

@@ -513,6 +513,67 @@ action类型: fill(填写输入框)、click(点击按钮)、select(选择下拉�
       max_tokens: 2500
     }, sessionId)
   }
+
+  /**
+   * 生成补救步骤 - 当测试步骤失败时调用
+   * @author Jiane
+   */
+  async generateRecoverySteps(
+    pageHtml: string,
+    failedStepDescription: string,
+    errorMessage: string,
+    sessionId?: string
+  ): Promise<string> {
+    const model = getModelForPurpose(this.provider, ModelPurpose.ANALYSIS)
+    
+    const recoveryPrompt = `
+你是自动化测试故障排查专家。一个测试步骤执行失败了，请分析原因并生成补救步骤。
+
+## 失败的测试步骤
+${failedStepDescription}
+
+## 错误信息
+${errorMessage}
+
+## 当前页面状态
+${pageHtml.substring(0, 5000)}
+
+## 任务
+1. 分析失败的原因（可能是选择器错误、元素不可见、页面状态改变等）
+2. 根据当前页面状态，生成替代的操作步骤
+3. 提供多个备选方案
+
+## 输出格式 (JSON)
+{
+  "analysis": "失败原因分析",
+  "steps": [
+    {
+      "action": "fill|click|select|wait|verify",
+      "selector": "CSS选择器或文本匹配",
+      "value": "操作值（如果需要）",
+      "description": "步骤描述"
+    }
+  ],
+  "notes": "其他建议"
+}
+`
+
+    return this.chatCompletion({
+      model,
+      messages: [
+        {
+          role: 'system',
+          content: '你是自动化测试故障排查专家。分析失败原因，生成补救步骤。输出有效JSON。'
+        },
+        {
+          role: 'user',
+          content: recoveryPrompt
+        }
+      ],
+      temperature: 0.4,
+      max_tokens: 1500
+    }, sessionId)
+  }
 }
 
 // ==================== 单例导出 ====================
