@@ -536,6 +536,254 @@ export class MCPManager {
     }
   }
 
+  /**
+   * 获取页面所有可交互元素（完整版）
+   * 直接在浏览器中执行，获取真实的DOM元素信息
+   * @author Jiane
+   */
+  async getPageInteractiveElements(sessionId?: string): Promise<MCPResult> {
+    const tool = 'playwright'
+    try {
+      if (!this.page) {
+        return { success: false, error: '浏览器未初始化' }
+      }
+
+      logMCP('获取页面可交互元素...', tool, sessionId)
+
+      const elements = await this.page.evaluate(() => {
+        // 辅助函数：生成唯一选择器
+        const getSelector = (el: Element): string => {
+          if (el.id) return `#${el.id}`
+          if (el.getAttribute('name')) return `[name="${el.getAttribute('name')}"]`
+          if (el.className && typeof el.className === 'string') {
+            const classes = el.className.trim().split(/\s+/).filter(c => c && !c.startsWith('el-')).slice(0, 2)
+            if (classes.length > 0) return `.${classes.join('.')}`
+          }
+          return el.tagName.toLowerCase()
+        }
+
+        // 辅助函数：检查元素是否可见
+        const isVisible = (el: Element): boolean => {
+          const style = window.getComputedStyle(el)
+          const rect = el.getBoundingClientRect()
+          return style.display !== 'none' && 
+                 style.visibility !== 'hidden' && 
+                 style.opacity !== '0' &&
+                 rect.width > 0 && 
+                 rect.height > 0
+        }
+
+        // 1. 获取所有输入框
+        const inputs: any[] = []
+        document.querySelectorAll('input:not([type="hidden"]), textarea').forEach(el => {
+          if (!isVisible(el)) return
+          const input = el as HTMLInputElement
+          inputs.push({
+            type: input.type || 'text',
+            selector: getSelector(el),
+            id: input.id || '',
+            name: input.name || '',
+            placeholder: input.placeholder || '',
+            value: input.value || '',
+            disabled: input.disabled,
+            readonly: input.readOnly,
+            required: input.required,
+            label: document.querySelector(`label[for="${input.id}"]`)?.textContent?.trim() || ''
+          })
+        })
+
+        // 2. 获取所有下拉框
+        const selects: any[] = []
+        document.querySelectorAll('select').forEach(el => {
+          if (!isVisible(el)) return
+          const select = el as HTMLSelectElement
+          const options = Array.from(select.options).map(opt => ({
+            value: opt.value,
+            text: opt.text
+          }))
+          selects.push({
+            type: 'select',
+            selector: getSelector(el),
+            id: select.id || '',
+            name: select.name || '',
+            options: options.slice(0, 10), // 最多10个选项
+            disabled: select.disabled,
+            required: select.required,
+            label: document.querySelector(`label[for="${select.id}"]`)?.textContent?.trim() || ''
+          })
+        })
+
+        // 3. 获取所有按钮（包括各种框架的按钮）
+        const buttons: any[] = []
+        const buttonSelectors = [
+          'button',
+          'input[type="submit"]',
+          'input[type="button"]',
+          '[role="button"]',
+          '.el-button',           // Element UI
+          '.ant-btn',             // Ant Design
+          '.layui-btn',           // Layui
+          '.btn',                 // Bootstrap
+          '[lay-submit]',         // Layui submit
+          'a.btn',                // 链接按钮
+        ]
+        
+        const seenButtons = new Set<string>()
+        buttonSelectors.forEach(selector => {
+          document.querySelectorAll(selector).forEach(el => {
+            if (!isVisible(el)) return
+            const text = el.textContent?.trim() || ''
+            const key = `${getSelector(el)}-${text}`
+            if (seenButtons.has(key)) return
+            seenButtons.add(key)
+            
+            buttons.push({
+              type: 'button',
+              selector: getSelector(el),
+              text: text.substring(0, 50),
+              id: el.id || '',
+              disabled: (el as HTMLButtonElement).disabled || el.classList.contains('is-disabled'),
+              buttonType: el.getAttribute('type') || ''
+            })
+          })
+        })
+
+        // 4. 获取表格信息（如果有）
+        const tables: any[] = []
+        document.querySelectorAll('table, .el-table, .ant-table').forEach((el, index) => {
+          if (!isVisible(el)) return
+          const headers: string[] = []
+          el.querySelectorAll('th, .el-table__header th').forEach(th => {
+            const text = th.textContent?.trim()
+            if (text) headers.push(text)
+          })
+          const rowCount = el.querySelectorAll('tbody tr, .el-table__body tr').length
+          tables.push({
+            index,
+            selector: getSelector(el),
+            headers: headers.slice(0, 10),
+            rowCount
+          })
+        })
+
+        // 5. 获取表单信息
+        const forms: any[] = []
+        document.querySelectorAll('form, .el-form, .ant-form').forEach(el => {
+          if (!isVisible(el)) return
+          forms.push({
+            selector: getSelector(el),
+            id: el.id || '',
+            action: el.getAttribute('action') || '',
+            method: el.getAttribute('method') || ''
+          })
+        })
+
+        // 6. 获取链接/导航菜单
+        const links: any[] = []
+        document.querySelectorAll('a[href], .el-menu-item, .ant-menu-item, .layui-nav-item').forEach(el => {
+          if (!isVisible(el)) return
+          const text = el.textContent?.trim() || ''
+          if (!text || text.length > 30) return
+          links.push({
+            type: 'link',
+            selector: getSelector(el),
+            text: text,
+            href: el.getAttribute('href') || ''
+          })
+        })
+
+        return {
+          inputs,
+          selects,
+          buttons,
+          tables,
+          forms,
+          links: links.slice(0, 20), // 最多20个链接
+          pageTitle: document.title,
+          pageUrl: window.location.href
+        }
+      })
+
+      logMCP(`获取到元素: ${elements.inputs.length}个输入框, ${elements.selects.length}个下拉框, ${elements.buttons.length}个按钮, ${elements.tables.length}个表格`, tool, sessionId)
+      
+      return { success: true, data: elements }
+    } catch (error) {
+      const errorMsg = error instanceof Error ? error.message : String(error)
+      logError('获取页面元素失败', error as Error, 'mcpManager-getPageInteractiveElements', sessionId)
+      return { success: false, error: errorMsg }
+    }
+  }
+
+  /**
+   * 获取指定区域的元素（用于多轮迭代）
+   * @author Jiane
+   */
+  async getElementsInArea(containerSelector: string, sessionId?: string): Promise<MCPResult> {
+    const tool = 'playwright'
+    try {
+      if (!this.page) {
+        return { success: false, error: '浏览器未初始化' }
+      }
+
+      logMCP(`获取区域 [${containerSelector}] 内的元素...`, tool, sessionId)
+
+      const elements = await this.page.evaluate((selector) => {
+        const container = document.querySelector(selector)
+        if (!container) return null
+
+        const isVisible = (el: Element): boolean => {
+          const style = window.getComputedStyle(el)
+          const rect = el.getBoundingClientRect()
+          return style.display !== 'none' && 
+                 style.visibility !== 'hidden' && 
+                 rect.width > 0 && 
+                 rect.height > 0
+        }
+
+        const getSelector = (el: Element): string => {
+          if (el.id) return `#${el.id}`
+          if (el.getAttribute('name')) return `[name="${el.getAttribute('name')}"]`
+          return el.tagName.toLowerCase()
+        }
+
+        const inputs: any[] = []
+        container.querySelectorAll('input:not([type="hidden"]), textarea, select').forEach(el => {
+          if (!isVisible(el)) return
+          const input = el as HTMLInputElement
+          inputs.push({
+            type: input.type || el.tagName.toLowerCase(),
+            selector: getSelector(el),
+            placeholder: input.placeholder || '',
+            label: document.querySelector(`label[for="${input.id}"]`)?.textContent?.trim() || ''
+          })
+        })
+
+        const buttons: any[] = []
+        container.querySelectorAll('button, [role="button"], .el-button, .btn').forEach(el => {
+          if (!isVisible(el)) return
+          buttons.push({
+            type: 'button',
+            selector: getSelector(el),
+            text: el.textContent?.trim().substring(0, 30) || ''
+          })
+        })
+
+        return { inputs, buttons }
+      }, containerSelector)
+
+      if (!elements) {
+        return { success: false, error: `未找到容器: ${containerSelector}` }
+      }
+
+      logMCP(`区域内获取到: ${elements.inputs.length}个输入框, ${elements.buttons.length}个按钮`, tool, sessionId)
+      return { success: true, data: elements }
+    } catch (error) {
+      const errorMsg = error instanceof Error ? error.message : String(error)
+      logError('获取区域元素失败', error as Error, 'mcpManager-getElementsInArea', sessionId)
+      return { success: false, error: errorMsg }
+    }
+  }
+
   // 清理所有MCP进程和浏览器
   async cleanup() {
     const tool = 'playwright'

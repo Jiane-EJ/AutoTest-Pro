@@ -1,5 +1,6 @@
-import { logAI, logError } from '@/lib/logger'
+import { logAI, logMCP, logError } from '@/lib/logger'
 import { qwenClient } from '@/lib/ai/qwenClient'
+import { mcpManager } from '@/lib/mcp/mcpManager'
 
 export interface PageElement {
   type: string
@@ -9,6 +10,20 @@ export interface PageElement {
   placeholder?: string
   text?: string
   ariaLabel?: string
+  label?: string
+  disabled?: boolean
+  required?: boolean
+}
+
+export interface PageElements {
+  inputs: PageElement[]
+  selects: PageElement[]
+  buttons: PageElement[]
+  tables: any[]
+  forms: any[]
+  links: PageElement[]
+  pageTitle: string
+  pageUrl: string
 }
 
 export interface PageAnalysisResult {
@@ -21,24 +36,55 @@ export interface PageAnalysisResult {
 }
 
 /**
- * 页面分析器 - 在执行操作前分析页面结构
- * 流程：获取HTML → 提取元素 → AI分析 → 生成选择器
+ * 页面分析器 - 通过MCP获取真实DOM元素，AI分析生成测试步骤
+ * @author Jiane
+ * 
+ * 改进流程：
+ * 1. MCP直接在浏览器中获取完整的页面元素（不用正则）
+ * 2. 多轮迭代：获取元素 → AI分析 → 如果需要更多信息再获取
+ * 3. AI只基于实际获取到的元素生成测试，不猜测
  */
 export class PageAnalyzer {
   /**
-   * 从HTML中提取所有交互元素
+   * 通过MCP获取页面所有可交互元素
+   * @author Jiane
+   */
+  async getPageElements(sessionId?: string): Promise<PageElements | null> {
+    try {
+      logMCP('通过MCP获取页面可交互元素...', 'playwright', sessionId)
+      
+      const result = await mcpManager.getPageInteractiveElements(sessionId)
+      
+      if (!result.success || !result.data) {
+        logError('MCP获取页面元素失败', new Error(result.error || '未知错误'), 'pageAnalyzer-getPageElements', sessionId)
+        return null
+      }
+
+      const elements = result.data as PageElements
+      logMCP(`MCP获取元素完成: ${elements.inputs.length}输入框, ${elements.selects.length}下拉框, ${elements.buttons.length}按钮`, 'playwright', sessionId)
+      
+      return elements
+    } catch (error) {
+      logError('获取页面元素异常', error as Error, 'pageAnalyzer-getPageElements', sessionId)
+      return null
+    }
+  }
+
+  /**
+   * 从HTML中提取所有交互元素（备用方法，当MCP不可用时使用）
+   * @deprecated 优先使用 getPageElements 方法
    */
   extractElements(html: string): {
     inputs: PageElement[]
     buttons: PageElement[]
     forms: PageElement[]
   } {
-    try {
-      // 简单的正则表达式提取（实际应用中应使用DOM解析）
-      const inputs: PageElement[] = []
-      const buttons: PageElement[] = []
-      const forms: PageElement[] = []
+    // 保留原有的正则提取逻辑作为备用
+    const inputs: PageElement[] = []
+    const buttons: PageElement[] = []
+    const forms: PageElement[] = []
 
+    try {
       // 提取input元素
       const inputRegex = /<input[^>]*>/gi
       const inputMatches = html.match(inputRegex) || []
@@ -53,144 +99,34 @@ export class PageAnalyzer {
         const name = nameMatch?.[1] || ''
         const type = typeMatch?.[1] || 'text'
 
-        let selector = ''
-        if (id) {
-          selector = `#${id}`
-        } else if (name) {
-          selector = `input[name="${name}"]`
-        } else if (type === 'password') {
-          selector = 'input[type="password"]'
-        } else {
-          selector = `input[type="${type}"]`
-        }
-
-        inputs.push({
-          type,
-          selector,
-          id,
-          name,
-          placeholder: placeholderMatch?.[1] || ''
-        })
-      })
-
-      // 提取button元素（包括隐藏的按钮）
-      const buttonRegex = /<button[^>]*>([^<]*)<\/button>/gi
-      const buttonMatches = html.match(buttonRegex) || []
-      
-      buttonMatches.forEach((match) => {
-        const idMatch = match.match(/id=["']([^"']+)["']/i)
-        const nameMatch = match.match(/name=["']([^"']+)["']/i)
-        const textMatch = match.match(/>([^<]+)<\/button>/i)
-        const typeMatch = match.match(/type=["']([^"']+)["']/i)
-
-        const id = idMatch?.[1] || ''
-        const name = nameMatch?.[1] || ''
-        const text = textMatch?.[1]?.trim() || ''
-        const type = typeMatch?.[1] || 'button'
+        if (type === 'hidden') return
 
         let selector = ''
-        if (id) {
-          selector = `#${id}`
-        } else if (name) {
-          selector = `button[name="${name}"]`
-        } else if (text) {
-          selector = `button:has-text("${text}")`
-        } else if (type === 'submit') {
-          selector = 'button[type="submit"]'
-        } else {
-          selector = 'button'
-        }
+        if (id) selector = `#${id}`
+        else if (name) selector = `input[name="${name}"]`
+        else selector = `input[type="${type}"]`
 
-        buttons.push({
-          type: 'button',
-          selector,
-          id,
-          name,
-          text
-        })
+        inputs.push({ type, selector, id, name, placeholder: placeholderMatch?.[1] || '' })
       })
 
-      // 提取 div 按钮（layui 等框架使用 div 作为按钮）
-      // 匹配带有 lay-submit 或 class="btn" 的 div 元素
-      const divButtonRegex = /<div[^>]*(?:lay-submit|class=["'][^"']*btn[^"']*["'])[^>]*>[\s\S]*?<\/div>/gi
-      const divButtonMatches = html.match(divButtonRegex) || []
-      
-      divButtonMatches.forEach((match) => {
-        const classMatch = match.match(/class=["']([^"']+)["']/i)
-        const layFilterMatch = match.match(/lay-filter=["']([^"']+)["']/i)
-        // 提取内部文本（可能嵌套在子元素中）
-        const innerTextMatch = match.match(/>([^<]*登[^<]*)<|>([^<]*Login[^<]*)<|>([^<]*Submit[^<]*)</i)
+      // 提取button元素
+      const buttonRegex = /<button[^>]*>([\s\S]*?)<\/button>/gi
+      let match
+      while ((match = buttonRegex.exec(html)) !== null) {
+        const fullMatch = match[0]
+        const idMatch = fullMatch.match(/id=["']([^"']+)["']/i)
+        const text = match[1]?.replace(/<[^>]*>/g, '').trim() || ''
         
-        const className = classMatch?.[1] || ''
-        const layFilter = layFilterMatch?.[1] || ''
-        const text = innerTextMatch?.[1] || innerTextMatch?.[2] || innerTextMatch?.[3] || ''
-
-        let selector = ''
-        if (layFilter) {
-          selector = `div[lay-filter="${layFilter}"]`
-        } else if (className.includes('btn')) {
-          selector = `div.btn`
-        } else {
-          selector = 'div[lay-submit]'
-        }
-
-        buttons.push({
-          type: 'div-button',
-          selector,
-          text: text.trim() || '登录按钮'
-        })
-      })
-
-      // 特别处理：查找包含"立即登录"、"登录"等文本的可点击元素
-      const loginTextRegex = /<(?:div|span|a)[^>]*>[^<]*(?:立即登录|登录|登陆|Sign\s*In|Login)[^<]*<\/(?:div|span|a)>/gi
-      const loginTextMatches = html.match(loginTextRegex) || []
-      
-      loginTextMatches.forEach((match) => {
-        const textMatch = match.match(/>([^<]+)</i)
-        const text = textMatch?.[1]?.trim() || ''
-        
-        if (text && !buttons.some(b => b.text === text)) {
-          buttons.push({
-            type: 'text-button',
-            selector: `text="${text}"`,
-            text
-          })
-        }
-      })
-
-      // 提取form元素
-      const formRegex = /<form[^>]*>/gi
-      const formMatches = html.match(formRegex) || []
-      
-      formMatches.forEach((match) => {
-        const idMatch = match.match(/id=["']([^"']+)["']/i)
-        const nameMatch = match.match(/name=["']([^"']+)["']/i)
-
         const id = idMatch?.[1] || ''
-        const name = nameMatch?.[1] || ''
+        let selector = id ? `#${id}` : text ? `button:has-text("${text}")` : 'button'
 
-        let selector = ''
-        if (id) {
-          selector = `#${id}`
-        } else if (name) {
-          selector = `form[name="${name}"]`
-        } else {
-          selector = 'form'
-        }
-
-        forms.push({
-          type: 'form',
-          selector,
-          id,
-          name
-        })
-      })
-
-      return { inputs, buttons, forms }
+        buttons.push({ type: 'button', selector, id, text })
+      }
     } catch (error) {
       logError('页面元素提取失败', error as Error, 'pageAnalyzer-extractElements')
-      return { inputs: [], buttons: [], forms: [] }
     }
+
+    return { inputs, buttons, forms }
   }
 
   /**
@@ -275,6 +211,7 @@ ${JSON.stringify(elements.buttons, null, 2)}
 
   /**
    * 分析页面功能并生成测试步骤
+   * 改进：通过MCP获取真实DOM元素，AI只基于实际元素生成测试
    * @author Jiane
    */
   async analyzePageFunctionality(
@@ -283,61 +220,75 @@ ${JSON.stringify(elements.buttons, null, 2)}
     sessionId?: string
   ): Promise<{
     success: boolean
-    testSteps: string[]
+    testSteps: any[]
     analysis: string
+    elements?: PageElements
     error?: string
   }> {
     try {
       logAI('开始分析页面功能...', 'qwen-vl-max', sessionId)
 
-      const elements = this.extractElements(pageHtml)
+      // 第一步：通过MCP获取页面真实元素
+      logMCP('[步骤1] 通过MCP获取页面可交互元素...', 'playwright', sessionId)
+      const elements = await this.getPageElements(sessionId)
+      
+      if (!elements) {
+        // 备用方案：使用正则提取
+        logAI('MCP获取失败，使用备用方案提取元素...', 'qwen-vl-max', sessionId)
+        const fallbackElements = this.extractElements(pageHtml)
+        return this.generateTestStepsFromElements(fallbackElements, requirement, sessionId)
+      }
 
+      logAI(`获取到元素: ${elements.inputs.length}输入框, ${elements.selects.length}下拉框, ${elements.buttons.length}按钮`, 'qwen-vl-max', sessionId)
+
+      // 第二步：AI分析并生成测试步骤
+      logAI('[步骤2] AI分析页面元素，生成测试步骤...', 'qwen-vl-max', sessionId)
+      
       const analysisPrompt = `
-你是一个业务功能测试专家，请根据页面元素生成【正向业务流程】的测试步骤。
+你是业务功能测试专家。请根据【实际获取到的页面元素】生成正向业务测试步骤。
 
 ## 测试需求
 ${requirement}
 
-## 页面元素
-输入框：
+## 页面信息
+- 页面标题: ${elements.pageTitle}
+- 页面URL: ${elements.pageUrl}
+
+## 实际获取到的页面元素
+
+### 输入框 (共${elements.inputs.length}个)
 ${JSON.stringify(elements.inputs, null, 2)}
 
-按钮：
+### 下拉框 (共${elements.selects.length}个)
+${JSON.stringify(elements.selects, null, 2)}
+
+### 按钮 (共${elements.buttons.length}个)
 ${JSON.stringify(elements.buttons, null, 2)}
 
-## 生成规则
-1. 只生成【正向业务操作】的测试步骤，模拟真实用户的正常使用流程
-2. 每个步骤必须是可执行的具体操作（填写、点击、选择等）
-3. 步骤中必须包含具体的选择器(selector)和测试数据(value)
-4. 不要生成以下类型的测试：
-   - 异常场景测试（空值、特殊字符、超长输入等）
-   - 性能测试（网络延迟、加载状态等）
-   - 无障碍测试（Tab键、键盘导航等）
-   - 兼容性测试（不同浏览器、屏幕尺寸等）
-   - 安全测试（XSS、SQL注入等）
-   - 边界测试（重复提交、刷新行为等）
+### 表格 (共${elements.tables.length}个)
+${JSON.stringify(elements.tables, null, 2)}
 
-## 输出格式
-请用JSON格式返回，每个步骤包含action、selector、value、description：
+## 严格规则
+1. 【禁止猜测】只能使用上面列出的元素，不能凭空创造不存在的元素
+2. 【禁止猜测】selector必须使用元素中提供的selector，不能自己编造
+3. 只生成正向业务流程测试，模拟用户正常操作
+4. 有多少可操作元素就生成多少步骤，不要人为限制数量
+5. 不生成异常测试、边界测试、性能测试等
+
+## 输出格式 (严格JSON)
 {
   "testSteps": [
     {
       "action": "fill",
-      "selector": "#username",
-      "value": "测试数据",
-      "description": "在用户名输入框填写测试数据"
-    },
-    {
-      "action": "click",
-      "selector": "button[type=submit]",
-      "value": "",
-      "description": "点击提交按钮"
+      "selector": "元素中提供的selector",
+      "value": "合理的测试数据",
+      "description": "操作描述"
     }
   ],
-  "analysis": "简要说明页面的核心业务功能"
+  "analysis": "基于实际元素的页面功能分析"
 }
 
-action类型：fill(填写)、click(点击)、select(下拉选择)、verify(验证结果)
+action类型: fill(填写输入框)、click(点击按钮)、select(选择下拉框)、verify(验证结果)
 `
 
       const aiAnalysis = await qwenClient.chatCompletion(
@@ -346,25 +297,38 @@ action类型：fill(填写)、click(点击)、select(下拉选择)、verify(验�
           messages: [
             {
               role: 'system',
-              content: '你是业务功能测试专家，只生成正向业务流程的测试步骤，不生成异常、边界、性能等非业务测试。输出必须是有效的JSON格式。'
+              content: '你是业务功能测试专家。严格规则：1.只能使用提供的元素，禁止猜测或创造不存在的元素 2.selector必须来自元素数据 3.只生成正向业务测试。输出有效JSON。'
             },
             {
               role: 'user',
               content: analysisPrompt
             }
           ],
-          temperature: 0.3,
-          max_tokens: 1500
+          temperature: 0.2,
+          max_tokens: 2000
         },
         sessionId
       )
 
-      logAI(`功能分析完成: ${aiAnalysis.substring(0, 200)}...`, 'qwen-vl-max', sessionId)
+      logAI(`AI分析完成: ${aiAnalysis.substring(0, 300)}...`, 'qwen-vl-max', sessionId)
+
+      // 解析AI返回的测试步骤
+      let testSteps: any[] = []
+      try {
+        const jsonMatch = aiAnalysis.match(/\{[\s\S]*\}/)
+        if (jsonMatch) {
+          const parsed = JSON.parse(jsonMatch[0])
+          testSteps = parsed.testSteps || []
+        }
+      } catch (e) {
+        logAI('解析AI返回的JSON失败，返回原始分析结果', 'qwen-vl-max', sessionId)
+      }
 
       return {
         success: true,
-        testSteps: [],
-        analysis: aiAnalysis
+        testSteps,
+        analysis: aiAnalysis,
+        elements
       }
     } catch (error) {
       const errorMsg = error instanceof Error ? error.message : String(error)
@@ -376,6 +340,69 @@ action类型：fill(填写)、click(点击)、select(下拉选择)、verify(验�
         error: errorMsg
       }
     }
+  }
+
+  /**
+   * 从备用元素生成测试步骤（当MCP不可用时）
+   * @author Jiane
+   */
+  private async generateTestStepsFromElements(
+    elements: { inputs: PageElement[]; buttons: PageElement[]; forms: PageElement[] },
+    requirement: string,
+    sessionId?: string
+  ): Promise<{
+    success: boolean
+    testSteps: any[]
+    analysis: string
+    error?: string
+  }> {
+    const analysisPrompt = `
+你是业务功能测试专家。请根据【实际获取到的页面元素】生成正向业务测试步骤。
+
+## 测试需求
+${requirement}
+
+## 实际获取到的元素
+输入框: ${JSON.stringify(elements.inputs, null, 2)}
+按钮: ${JSON.stringify(elements.buttons, null, 2)}
+
+## 严格规则
+1. 只能使用上面列出的元素，禁止猜测
+2. selector必须使用元素中提供的selector
+3. 只生成正向业务流程测试
+
+## 输出格式
+{
+  "testSteps": [{"action": "fill/click", "selector": "...", "value": "...", "description": "..."}],
+  "analysis": "页面功能分析"
+}
+`
+
+    const aiAnalysis = await qwenClient.chatCompletion(
+      {
+        model: 'qwen-vl-max',
+        messages: [
+          { role: 'system', content: '业务测试专家，只使用提供的元素，禁止猜测。输出JSON。' },
+          { role: 'user', content: analysisPrompt }
+        ],
+        temperature: 0.2,
+        max_tokens: 1500
+      },
+      sessionId
+    )
+
+    let testSteps: any[] = []
+    try {
+      const jsonMatch = aiAnalysis.match(/\{[\s\S]*\}/)
+      if (jsonMatch) {
+        const parsed = JSON.parse(jsonMatch[0])
+        testSteps = parsed.testSteps || []
+      }
+    } catch (e) {
+      // ignore
+    }
+
+    return { success: true, testSteps, analysis: aiAnalysis }
   }
 
   /**

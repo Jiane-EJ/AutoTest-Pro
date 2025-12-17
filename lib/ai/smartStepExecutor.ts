@@ -376,6 +376,8 @@ export class SmartStepExecutor {
 
   /**
    * 执行页面功能测试
+   * 改进流程：MCP获取真实元素 → AI分析生成步骤 → 执行测试
+   * @author Jiane
    */
   static async executePageFunctionalityTest(
     context: StepExecutionContext,
@@ -387,98 +389,63 @@ export class SmartStepExecutor {
     try {
       logSystem(`开始执行页面功能测试`, 'smartStepExecutor-executePageFunctionalityTest', sessionId)
 
-      // 步骤1：获取页面HTML
-      logAI(`[步骤1] 获取页面HTML...`, 'qwen-vl-max', sessionId)
-      const pageHtmlResult = await mcpManager.callPlaywright(
-        'get_visible_html',
-        {},
-        sessionId
-      )
-
-      if (!pageHtmlResult.success) {
-        throw new Error('获取页面HTML失败')
-      }
-
-      const pageHtml = pageHtmlResult.data || ''
-
-      // 步骤2：AI分析页面功能
-      logAI(`[步骤2] AI分析页面功能...`, 'qwen-vl-max', sessionId)
+      // 步骤1：通过MCP获取页面元素并AI分析（合并为一步）
+      logAI(`[步骤1] MCP获取页面元素 + AI分析...`, 'qwen-vl-max', sessionId)
+      
       const analysisResult = await pageAnalyzer.analyzePageFunctionality(
-        pageHtml,
+        '', // pageHtml不再需要，内部通过MCP获取
         requirement,
         sessionId
       )
 
       if (!analysisResult.success) {
-        throw new Error('页面功能分析失败')
+        throw new Error('页面功能分析失败: ' + (analysisResult.error || '未知错误'))
       }
 
-      logAI(`功能分析完成: ${analysisResult.analysis.substring(0, 300)}...`, 'qwen-vl-max', sessionId)
+      // 输出获取到的元素信息
+      if (analysisResult.elements) {
+        const e = analysisResult.elements
+        logAI(`[元素统计] 输入框:${e.inputs.length} 下拉框:${e.selects.length} 按钮:${e.buttons.length} 表格:${e.tables.length}`, 'qwen-vl-max', sessionId)
+      }
 
-      // 步骤3：根据分析结果生成测试步骤
-      logAI(`[步骤3] 生成测试步骤...`, 'qwen-vl-max', sessionId)
-      const testStepsPrompt = `
-基于以下页面分析结果，生成【正向业务流程】的测试步骤：
+      logAI(`[步骤2] AI分析完成，生成了 ${analysisResult.testSteps.length} 个测试步骤`, 'qwen-vl-max', sessionId)
 
-${analysisResult.analysis}
+      // 如果AI已经生成了测试步骤，直接返回
+      if (analysisResult.testSteps.length > 0) {
+        logAI(`测试步骤已生成，无需二次处理`, 'qwen-vl-max', sessionId)
+        return {
+          success: true,
+          data: {
+            elements: analysisResult.elements,
+            analysis: analysisResult.analysis,
+            testSteps: analysisResult.testSteps
+          },
+          duration: Date.now() - startTime
+        }
+      }
 
-## 生成规则
-1. 只生成正向业务操作步骤，模拟真实用户的正常使用流程
-2. 每个步骤必须是可执行的MCP操作（fill填写、click点击、select选择、verify验证）
-3. 必须使用分析结果中提供的selector
-4. 不要生成异常测试、边界测试、性能测试等非业务测试
+      // 如果AI没有返回结构化步骤，尝试从analysis中解析
+      logAI(`[步骤3] 尝试从分析结果中解析测试步骤...`, 'qwen-vl-max', sessionId)
+      
+      let testSteps: any[] = []
+      try {
+        const jsonMatch = analysisResult.analysis.match(/\{[\s\S]*\}/)
+        if (jsonMatch) {
+          const parsed = JSON.parse(jsonMatch[0])
+          testSteps = parsed.testSteps || parsed.steps || []
+        }
+      } catch (e) {
+        logAI(`解析失败，返回原始分析结果`, 'qwen-vl-max', sessionId)
+      }
 
-## 输出格式
-{
-  "steps": [
-    {
-      "action": "fill",
-      "selector": "具体的CSS选择器",
-      "value": "合理的测试数据",
-      "description": "操作描述"
-    },
-    {
-      "action": "click",
-      "selector": "按钮选择器",
-      "value": "",
-      "description": "点击提交/保存/查询等按钮"
-    },
-    {
-      "action": "verify",
-      "selector": "",
-      "value": "",
-      "description": "验证操作结果"
-    }
-  ]
-}
-`
-
-      const testStepsResult = await qwenClient.chatCompletion(
-        {
-          model: 'qwen-vl-max',
-          messages: [
-            {
-              role: 'system',
-              content: '你是业务功能测试专家，只生成正向业务流程的测试步骤。输出必须是有效的JSON格式。'
-            },
-            {
-              role: 'user',
-              content: testStepsPrompt
-            }
-          ],
-          temperature: 0.3,
-          max_tokens: 1200
-        },
-        sessionId
-      )
-
-      logAI(`测试步骤生成完成`, 'qwen-vl-max', sessionId)
+      logAI(`测试步骤生成完成: ${testSteps.length}个步骤`, 'qwen-vl-max', sessionId)
 
       return {
         success: true,
         data: {
+          elements: analysisResult.elements,
           analysis: analysisResult.analysis,
-          testSteps: testStepsResult
+          testSteps: testSteps
         },
         duration: Date.now() - startTime
       }
