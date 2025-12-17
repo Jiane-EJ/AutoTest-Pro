@@ -14,7 +14,7 @@ const TEST_CONFIG = {
   url: process.env.TEST_URL,
   username: process.env.TEST_USERNAME || 'xwytlb001',
   password: process.env.TEST_PASSWORD || '888888',
-  requirement: process.env.TEST_REQUIREMENT || '完整测试/community/list下的功能'
+  requirement: process.env.TEST_REQUIREMENT || '完整测试小区管理-小区信息管理下的功能'
 }
 
 const API_BASE = 'http://localhost:3000'

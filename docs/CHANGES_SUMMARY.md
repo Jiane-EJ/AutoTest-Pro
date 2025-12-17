@@ -71,7 +71,7 @@ private async realNavigate(page: Page, url: string) {
   - 输出AI的完整分析结果
 
 - **步骤8（页面分析）**：
-  - 获取真实的/community/list页面内容
+  - 获取真实的小区管理-小区信息管理页面内容
   - 调用AI分析页面功能
   - 生成详细的测试计划
 
@@ -117,11 +117,11 @@ const loginAnalysis = await qwenClient.analyzeLoginStatus(pageContent.data, sess
 
 ### 现在（真实）
 ```
-步骤1: 真实Playwright导航到https://wmptest.fuioupay.com/
+步骤1: 真实Playwright导航到https://wyt-pf-test.fuioupay.com/
 步骤2: 分析登录页面结构
 步骤3-5: 真实填充用户名、密码，点击登录
 步骤6: 获取真实页面HTML → 调用Qwen AI分析 → 输出AI结果
-步骤7: 真实导航到/community/list
+步骤7: 真实导航到小区管理-小区信息管理
 步骤8: 获取真实页面内容 → 调用Qwen AI分析功能 → 输出测试计划
 步骤9-12: 执行真实功能测试和生成报告
 ```
@@ -134,10 +134,10 @@ QWEN_API_KEY=sk-xxxxxxxxxxxxxxxx
 QWEN_API_URL=https://dashscope.aliyuncs.com/compatible-mode/v1
 
 # 测试配置
-TEST_URL=https://wmptest.fuioupay.com/
+TEST_URL=https://wyt-pf-test.fuioupay.com/
 TEST_USERNAME=xwytlb001
 TEST_PASSWORD=888888
-TEST_REQUIREMENT=完整测试/community/list下的功能
+TEST_REQUIREMENT=完整测试小区管理-小区信息管理下的功能
 ```
 
 ## 日志输出示例

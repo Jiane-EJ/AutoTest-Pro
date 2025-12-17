@@ -44,7 +44,7 @@ export async function runAITest(sessionId: string, config: TestConfig) {
       { id: 1, title: '初始化浏览器环境', status: 'pending', duration: null, log: null },
       { id: 2, title: '导航至登陆页面', status: 'pending', duration: null, log: null },
       { id: 3, title: '执行完整登录流程', status: 'pending', duration: null, log: null },
-      { id: 4, title: '导航至 /community/list', status: 'pending', duration: null, log: null },
+      { id: 4, title: '导航至 小区管理-小区信息管理', status: 'pending', duration: null, log: null },
       { id: 5, title: '执行页面功能测试', status: 'pending', duration: null, log: null },
       { id: 6, title: '生成测试报告', status: 'pending', duration: null, log: null },
       { id: 7, title: '清理测试环境', status: 'pending', duration: null, log: null }
@@ -146,7 +146,7 @@ export async function runAITest(sessionId: string, config: TestConfig) {
                 logAI(`[步骤4] 导航到功能测试页面...`, sessionId)
                 const funcNavResult = await SmartStepExecutor.executeNavigation(
                   { sessionId, stepId: step.id, stepTitle: step.title, config },
-                  `${config.url}/#/community/list`
+                  `${config.url}/#小区管理-小区信息管理`
                 )
                 if (!funcNavResult.success) {
                   throw new Error(funcNavResult.error || '导航失败')

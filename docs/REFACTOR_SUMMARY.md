@@ -43,10 +43,10 @@ GET /api/test/cases
       id: 1,
       name: '登录流程验证',
       description: '完整测试登录功能',
-      url: 'https://wmptest.fuioupay.com/',
+      url: 'https://wyt-pf-test.fuioupay.com/',
       username: 'xwytlb001',
       password: '888888',
-      requirement: '完整测试/community/list下的功能',
+      requirement: '完整测试小区管理-小区信息管理下的功能',
       steps: 12,
       lastRun: '2025-12-16 10:04:15',
       status: 'running'

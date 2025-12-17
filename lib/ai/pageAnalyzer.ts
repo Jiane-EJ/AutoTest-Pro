@@ -28,7 +28,7 @@ export class PageAnalyzer {
   /**
    * 从HTML中提取所有交互元素
    */
-  static extractElements(html: string): {
+  extractElements(html: string): {
     inputs: PageElement[]
     buttons: PageElement[]
     forms: PageElement[]
@@ -73,7 +73,7 @@ export class PageAnalyzer {
         })
       })
 
-      // 提取button元素
+      // 提取button元素（包括隐藏的按钮）
       const buttonRegex = /<button[^>]*>([^<]*)<\/button>/gi
       const buttonMatches = html.match(buttonRegex) || []
       
@@ -81,10 +81,12 @@ export class PageAnalyzer {
         const idMatch = match.match(/id=["']([^"']+)["']/i)
         const nameMatch = match.match(/name=["']([^"']+)["']/i)
         const textMatch = match.match(/>([^<]+)<\/button>/i)
+        const typeMatch = match.match(/type=["']([^"']+)["']/i)
 
         const id = idMatch?.[1] || ''
         const name = nameMatch?.[1] || ''
         const text = textMatch?.[1]?.trim() || ''
+        const type = typeMatch?.[1] || 'button'
 
         let selector = ''
         if (id) {
@@ -93,6 +95,8 @@ export class PageAnalyzer {
           selector = `button[name="${name}"]`
         } else if (text) {
           selector = `button:has-text("${text}")`
+        } else if (type === 'submit') {
+          selector = 'button[type="submit"]'
         } else {
           selector = 'button'
         }
@@ -104,6 +108,54 @@ export class PageAnalyzer {
           name,
           text
         })
+      })
+
+      // 提取 div 按钮（layui 等框架使用 div 作为按钮）
+      // 匹配带有 lay-submit 或 class="btn" 的 div 元素
+      const divButtonRegex = /<div[^>]*(?:lay-submit|class=["'][^"']*btn[^"']*["'])[^>]*>[\s\S]*?<\/div>/gi
+      const divButtonMatches = html.match(divButtonRegex) || []
+      
+      divButtonMatches.forEach((match) => {
+        const classMatch = match.match(/class=["']([^"']+)["']/i)
+        const layFilterMatch = match.match(/lay-filter=["']([^"']+)["']/i)
+        // 提取内部文本（可能嵌套在子元素中）
+        const innerTextMatch = match.match(/>([^<]*登[^<]*)<|>([^<]*Login[^<]*)<|>([^<]*Submit[^<]*)</i)
+        
+        const className = classMatch?.[1] || ''
+        const layFilter = layFilterMatch?.[1] || ''
+        const text = innerTextMatch?.[1] || innerTextMatch?.[2] || innerTextMatch?.[3] || ''
+
+        let selector = ''
+        if (layFilter) {
+          selector = `div[lay-filter="${layFilter}"]`
+        } else if (className.includes('btn')) {
+          selector = `div.btn`
+        } else {
+          selector = 'div[lay-submit]'
+        }
+
+        buttons.push({
+          type: 'div-button',
+          selector,
+          text: text.trim() || '登录按钮'
+        })
+      })
+
+      // 特别处理：查找包含"立即登录"、"登录"等文本的可点击元素
+      const loginTextRegex = /<(?:div|span|a)[^>]*>[^<]*(?:立即登录|登录|登陆|Sign\s*In|Login)[^<]*<\/(?:div|span|a)>/gi
+      const loginTextMatches = html.match(loginTextRegex) || []
+      
+      loginTextMatches.forEach((match) => {
+        const textMatch = match.match(/>([^<]+)</i)
+        const text = textMatch?.[1]?.trim() || ''
+        
+        if (text && !buttons.some(b => b.text === text)) {
+          buttons.push({
+            type: 'text-button',
+            selector: `text="${text}"`,
+            text
+          })
+        }
       })
 
       // 提取form元素
@@ -144,7 +196,7 @@ export class PageAnalyzer {
   /**
    * 分析页面并生成操作指导
    */
-  static async analyzePageForLogin(
+  async analyzePageForLogin(
     pageHtml: string,
     sessionId?: string
   ): Promise<PageAnalysisResult> {
@@ -224,7 +276,7 @@ ${JSON.stringify(elements.buttons, null, 2)}
   /**
    * 分析页面功能并生成测试步骤
    */
-  static async analyzePageFunctionality(
+  async analyzePageFunctionality(
     pageHtml: string,
     requirement: string,
     sessionId?: string
@@ -302,7 +354,7 @@ ${JSON.stringify(elements.buttons, null, 2)}
   /**
    * 验证操作是否成功
    */
-  static async verifyOperationSuccess(
+  async verifyOperationSuccess(
     beforeHtml: string,
     afterHtml: string,
     operationType: string,

@@ -58,7 +58,7 @@ export async function GET(request: NextRequest) {
       },
       {
         id: 7,
-        title: '导航至 /community/list',
+        title: '导航至 小区管理-小区信息管理',
         status: 'pending',
         duration: null,
         log: null

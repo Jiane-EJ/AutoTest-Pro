@@ -97,7 +97,7 @@ export class MCPManager {
 
   // Playwright MCP - 真实浏览器操作
   async callPlaywright(action: string, params: any, sessionId?: string): Promise<MCPResult> {
-    logMCP(`调用playwright工具: ${action}(${JSON.stringify(params).substring(0, 100)})`, sessionId)
+    logMCP(`调用playwright工具: ${action}(${JSON.stringify(params)})`, sessionId)
     
     try {
       const { page } = await this.ensureBrowser()
@@ -115,6 +115,8 @@ export class MCPManager {
           return await this.realGetVisibleHtml(page, sessionId)
         case 'get_visible_text':
           return await this.realGetVisibleText(page, sessionId)
+        case 'evaluate':
+          return await this.realEvaluate(page, params.script, sessionId)
         default:
           throw new Error(`不支持的操作: ${action}`)
       }
@@ -158,6 +160,8 @@ export class MCPManager {
     try {
       logMCP(`输入文本到元素 [${selector}]: ${value}`, sessionId)
       
+      let targetSelector = selector
+      
       // 先尝试等待元素出现
       try {
         await page.waitForSelector(selector, { timeout: 5000 })
@@ -178,7 +182,7 @@ export class MCPManager {
           try {
             await page.waitForSelector(altSelector, { timeout: 2000 })
             logMCP(`找到替代元素: ${altSelector}`, sessionId)
-            await page.fill(altSelector, value)
+            targetSelector = altSelector
             found = true
             break
           } catch (e) {
@@ -191,17 +195,16 @@ export class MCPManager {
         }
       }
       
-      if (!selector.includes('[')) {
-        await page.fill(selector, value)
-      }
+      // 使用模拟人类输入的方式（避免触发滑块验证）
+      await this.humanLikeType(page, targetSelector, value, sessionId)
       
-      logMCP(`输入成功: [${selector}]`, sessionId)
+      logMCP(`输入成功: [${targetSelector}]`, sessionId)
       
       return {
         success: true,
         data: {
           status: 'completed',
-          selector: selector,
+          selector: targetSelector,
           value: value
         }
       }
@@ -210,18 +213,138 @@ export class MCPManager {
     }
   }
 
+  /**
+   * 模拟人类输入行为
+   * - 先点击输入框获取焦点
+   * - 清空现有内容
+   * - 逐字输入，每个字符之间有随机延迟
+   */
+  private async humanLikeType(page: Page, selector: string, text: string, sessionId?: string): Promise<void> {
+    logMCP(`[人类模拟] 开始模拟人类输入: ${selector}`, sessionId)
+    
+    // 1. 点击输入框获取焦点
+    await page.click(selector)
+    await this.randomDelay(100, 300)
+    
+    // 2. 清空现有内容 (Ctrl+A 然后删除)
+    await page.keyboard.press('Control+a')
+    await this.randomDelay(50, 150)
+    await page.keyboard.press('Backspace')
+    await this.randomDelay(100, 200)
+    
+    // 3. 逐字输入，模拟人类打字速度
+    for (const char of text) {
+      await page.keyboard.type(char, { delay: this.getRandomInt(50, 150) })
+      // 偶尔有更长的停顿（模拟思考）
+      if (Math.random() < 0.1) {
+        await this.randomDelay(200, 500)
+      }
+    }
+    
+    logMCP(`[人类模拟] 输入完成: ${selector}`, sessionId)
+  }
+
+  /**
+   * 随机延迟
+   */
+  private async randomDelay(min: number, max: number): Promise<void> {
+    const delay = this.getRandomInt(min, max)
+    await new Promise(resolve => setTimeout(resolve, delay))
+  }
+
+  /**
+   * 获取随机整数
+   */
+  private getRandomInt(min: number, max: number): number {
+    return Math.floor(Math.random() * (max - min + 1)) + min
+  }
+
+  /**
+   * 模拟人类点击行为（通过选择器）
+   * - 先将鼠标移动到元素位置
+   * - 随机偏移一点位置
+   * - 然后点击
+   */
+  private async humanLikeClickBySelector(page: Page, selector: string, sessionId?: string): Promise<void> {
+    logMCP(`[人类模拟] 开始模拟人类点击: ${selector}`, sessionId)
+    
+    // 获取元素位置
+    const element = page.locator(selector)
+    const box = await element.boundingBox()
+    
+    if (box) {
+      // 计算点击位置（元素中心 + 随机偏移）
+      const x = box.x + box.width / 2 + this.getRandomInt(-5, 5)
+      const y = box.y + box.height / 2 + this.getRandomInt(-3, 3)
+      
+      // 移动鼠标到目标位置
+      await page.mouse.move(x, y, { steps: this.getRandomInt(5, 15) })
+      await this.randomDelay(100, 300)
+      
+      // 点击
+      await page.mouse.click(x, y)
+    } else {
+      // 如果无法获取位置，使用普通点击
+      await element.click()
+    }
+    
+    logMCP(`[人类模拟] 点击完成: ${selector}`, sessionId)
+  }
+
+  /**
+   * 模拟人类点击行为（通过 Locator）
+   */
+  private async humanLikeClick(page: Page, element: any, sessionId?: string): Promise<void> {
+    logMCP(`[人类模拟] 开始模拟人类点击元素`, sessionId)
+    
+    const box = await element.boundingBox()
+    
+    if (box) {
+      const x = box.x + box.width / 2 + this.getRandomInt(-5, 5)
+      const y = box.y + box.height / 2 + this.getRandomInt(-3, 3)
+      
+      await page.mouse.move(x, y, { steps: this.getRandomInt(5, 15) })
+      await this.randomDelay(100, 300)
+      await page.mouse.click(x, y)
+    } else {
+      await element.click()
+    }
+    
+    logMCP(`[人类模拟] 点击完成`, sessionId)
+  }
+
   private async realClick(page: Page, selector: string, sessionId?: string): Promise<MCPResult> {
     try {
       logMCP(`点击元素: ${selector}`, sessionId)
       
+      // 处理文本选择器 (text="xxx")
+      if (selector.startsWith('text=')) {
+        const text = selector.replace('text=', '').replace(/"/g, '')
+        logMCP(`使用文本选择器查找: ${text}`, sessionId)
+        const element = page.getByText(text, { exact: false })
+        await this.humanLikeClick(page, element, sessionId)
+        logMCP(`文本元素点击成功: ${text}`, sessionId)
+        return {
+          success: true,
+          data: { status: 'completed', selector }
+        }
+      }
+      
       // 先尝试等待元素出现
       try {
         await page.waitForSelector(selector, { timeout: 5000 })
+        await this.humanLikeClickBySelector(page, selector, sessionId)
+        logMCP(`点击成功: ${selector}`, sessionId)
       } catch (waitError) {
         logMCP(`元素 [${selector}] 未找到，尝试使用替代选择器...`, sessionId)
         
-        // 尝试替代选择器
+        // 尝试替代选择器（包括 layui 的 div 按钮）
         const alternativeSelectors = [
+          // layui 框架的登录按钮
+          `div.btn`,
+          `div[lay-submit]`,
+          `div[lay-filter="login_btn"]`,
+          // 标准按钮
           `button[id="${selector.replace('#', '')}"]`,
           `button[name="${selector.replace('#', '')}"]`,
           `button:has-text("登录")`,
@@ -235,11 +358,41 @@ export class MCPManager {
           try {
             await page.waitForSelector(altSelector, { timeout: 2000 })
             logMCP(`找到替代元素: ${altSelector}`, sessionId)
-            await page.click(altSelector)
+            // 使用人类模拟点击
+            await this.humanLikeClickBySelector(page, altSelector, sessionId)
             found = true
+            logMCP(`点击成功: ${altSelector}`, sessionId)
             break
           } catch (e) {
             // 继续尝试下一个选择器
+          }
+        }
+        
+        // 尝试使用文本查找（多个关键词）
+        if (!found) {
+          const loginTexts = [
+            '立即登录',
+            '登录',
+            '登陆',
+            '登 录',
+            '登 陆',
+            'Sign In',
+            'Login',
+            'Submit'
+          ]
+          
+          for (const text of loginTexts) {
+            try {
+              logMCP(`尝试通过文本"${text}"查找按钮...`, sessionId)
+              const loginBtn = page.getByText(text, { exact: false })
+              // 使用人类模拟点击
+              await this.humanLikeClick(page, loginBtn.first(), sessionId)
+              found = true
+              logMCP(`通过文本"${text}"点击成功`, sessionId)
+              break
+            } catch (e) {
+              // 继续尝试下一个文本
+            }
           }
         }
         
@@ -247,12 +400,6 @@ export class MCPManager {
           throw new Error(`无法找到按钮: ${selector}`)
         }
       }
-      
-      if (!selector.includes('[') && !selector.includes(':')) {
-        await page.click(selector)
-      }
-      
-      logMCP(`点击成功: ${selector}`, sessionId)
       
       // 等待页面加载
       await page.waitForLoadState('networkidle').catch(() => {})
@@ -311,6 +458,31 @@ export class MCPManager {
       return {
         success: true,
         data: text
+      }
+    } catch (error) {
+      throw error
+    }
+  }
+
+  private async realEvaluate(page: Page, script: string, sessionId?: string): Promise<MCPResult> {
+    try {
+      logMCP(`执行JavaScript脚本...`, sessionId)
+      // 使用 Function 构造函数而不是 eval，更安全
+      const result = await page.evaluate((scriptContent: string) => {
+        // eslint-disable-next-line no-new-func
+        const fn = new Function(`return ${scriptContent}`)
+        return fn()
+      }, script)
+      
+      // 安全地输出结果日志
+      const resultStr = result !== undefined && result !== null 
+        ? JSON.stringify(result) 
+        : String(result)
+      logMCP(`JavaScript执行完成，结果: ${resultStr}`, sessionId)
+      
+      return {
+        success: true,
+        data: result
       }
     } catch (error) {
       throw error

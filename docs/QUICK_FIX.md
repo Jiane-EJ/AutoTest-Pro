@@ -139,7 +139,7 @@ case 3:
 
 ## 如果还是不行
 
-1. **检查网络连接** - 确保能访问 https://wmptest.fuioupay.com/
+1. **检查网络连接** - 确保能访问 https://wyt-pf-test.fuioupay.com/
 2. **检查浏览器窗口** - 浏览器应该会打开一个窗口显示登录页面
 3. **查看完整日志** - 查看 `logs/test_<sessionId>.log` 文件
 4. **增加等待时间** - 修改 `lib/mcp/mcpManager.ts` 中的超时时间

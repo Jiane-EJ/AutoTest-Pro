@@ -134,10 +134,10 @@ playwright install chromium - 已准备
 ```bash
 QWEN_API_KEY=sk-7f57a989da6848f3a399cdaf4e39568a
 QWEN_API_URL=https://dashscope.aliyuncs.com/compatible-mode/v1
-TEST_URL=https://wmptest.fuioupay.com/
+TEST_URL=https://wyt-pf-test.fuioupay.com/
 TEST_USERNAME=xwytlb001
 TEST_PASSWORD=888888
-TEST_REQUIREMENT=完整测试/community/list下的功能
+TEST_REQUIREMENT=完整测试小区管理-小区信息管理下的功能
 ```
 
 ## 使用方式
@@ -179,8 +179,8 @@ curl -X POST http://localhost:3000/api/test \
 ### MCP日志
 ```
 [MCP] 调用playwright工具: navigate
-[MCP] 浏览器导航到: https://wmptest.fuioupay.com/
-[MCP] 导航成功: https://wmptest.fuioupay.com/
+[MCP] 浏览器导航到: https://wyt-pf-test.fuioupay.com/
+[MCP] 导航成功: https://wyt-pf-test.fuioupay.com/
 ```
 
 ### 错误日志

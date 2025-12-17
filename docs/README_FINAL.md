@@ -19,7 +19,7 @@ npx playwright install chromium
 编辑 `.env.local`：
 ```bash
 QWEN_API_KEY=sk-7f57a989da6848f3a399cdaf4e39568a
-TEST_URL=https://wmptest.fuioupay.com/
+TEST_URL=https://wyt-pf-test.fuioupay.com/
 TEST_USERNAME=xwytlb001
 TEST_PASSWORD=888888
 ```
@@ -57,7 +57,7 @@ npm run dev
 步骤2: 导航至登陆页面 → 真实导航
 步骤3-5: 登录操作 → 真实填充和点击
 步骤6: 登录验证 → AI分析 + 菜单识别
-步骤7: 导航至/community/list → 真实导航
+步骤7: 导航至小区管理-小区信息管理 → 真实导航
 步骤8: 页面分析 → AI分析 + 测试计划
 步骤9-12: 功能测试和报告 → 真实操作 + AI生成
 ```
@@ -94,10 +94,10 @@ QWEN_API_KEY=sk-xxxxxxxxxxxxxxxx
 QWEN_API_URL=https://dashscope.aliyuncs.com/compatible-mode/v1
 
 # 测试配置
-TEST_URL=https://wmptest.fuioupay.com/
+TEST_URL=https://wyt-pf-test.fuioupay.com/
 TEST_USERNAME=xwytlb001
 TEST_PASSWORD=888888
-TEST_REQUIREMENT=完整测试/community/list下的功能
+TEST_REQUIREMENT=完整测试小区管理-小区信息管理下的功能
 ```
 
 ### 修改登录表单选择器
@@ -129,10 +129,10 @@ node scripts/test-real-scenario.mjs
 curl -X POST http://localhost:3000/api/test \
   -H "Content-Type: application/json" \
   -d '{
-    "url": "https://wmptest.fuioupay.com/",
+    "url": "https://wyt-pf-test.fuioupay.com/",
     "username": "xwytlb001",
     "password": "888888",
-    "requirement": "完整测试/community/list下的功能"
+    "requirement": "完整测试小区管理-小区信息管理下的功能"
   }'
 ```
 

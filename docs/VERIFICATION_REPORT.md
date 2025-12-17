@@ -78,13 +78,13 @@
   - 自动更新测试配置
 - [x] 配置自动填充
   - 案例1：登录流程验证
-    - URL: https://wmptest.fuioupay.com/
-    - 需求: 完整测试/community/list下的功能
+    - URL: https://wyt-pf-test.fuioupay.com/
+    - 需求: 完整测试小区管理-小区信息管理下的功能
   - 案例2：社区列表功能测试
-    - URL: https://wmptest.fuioupay.com/community/list
+    - URL: https://wyt-pf-test.fuioupay.com/
     - 需求: 验证列表加载、搜索、分页功能
   - 案例3：用户信息编辑测试
-    - URL: https://wmptest.fuioupay.com/user/profile
+    - URL: https://wyt-pf-test.fuioupay.com/
     - 需求: 验证表单验证、提交、保存功能
 
 #### 测试执行

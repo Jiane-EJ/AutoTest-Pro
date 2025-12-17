@@ -17,10 +17,10 @@ QWEN_API_KEY=sk-7f57a989da6848f3a399cdaf4e39568a
 QWEN_API_URL=https://dashscope.aliyuncs.com/compatible-mode/v1
 
 # 测试配置
-TEST_URL=https://wmptest.fuioupay.com/
+TEST_URL=https://wyt-pf-test.fuioupay.com/
 TEST_USERNAME=xwytlb001
 TEST_PASSWORD=888888
-TEST_REQUIREMENT=完整测试/community/list下的功能
+TEST_REQUIREMENT=完整测试小区管理-小区信息管理下的功能
 ```
 
 ### 2. 依赖安装
@@ -50,10 +50,10 @@ npm run dev
 curl -X POST http://localhost:3000/api/test \
   -H "Content-Type: application/json" \
   -d '{
-    "url": "https://wmptest.fuioupay.com/",
+    "url": "https://wyt-pf-test.fuioupay.com/",
     "username": "xwytlb001",
     "password": "888888",
-    "requirement": "完整测试/community/list下的功能"
+    "requirement": "完整测试小区管理-小区信息管理下的功能"
   }'
 ```
 
@@ -79,7 +79,7 @@ node scripts/test-real-scenario.mjs
 - 输出AI分析结果
 
 ### 步骤7-8：页面分析
-- 导航至 `/community/list` 页面
+- 导航至 `小区管理-小区信息管理` 页面
 - 获取页面内容
 - 调用AI模型分析页面功能
 - 生成测试计划

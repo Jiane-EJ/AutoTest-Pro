@@ -36,7 +36,7 @@ const DEFAULT_TEST_CONFIG = {
   url: 'https://wyt-pf-test.fuioupay.com/#',
   username: 'xwytlb001',
   password: '888888',
-  requirement: '完整测试/community/list下的功能'
+  requirement: '完整测试小区管理-小区信息管理下的功能'
 }
 
 export default function Home() {

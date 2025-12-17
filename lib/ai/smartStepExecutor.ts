@@ -146,34 +146,190 @@ export class SmartStepExecutor {
 
       // 步骤5：点击登录按钮
       logAI(`[步骤5] 点击登录按钮`, sessionId)
-      const clickResult = await mcpManager.callPlaywright(
-        'click',
-        {
-          selector: loginButtonSelector
-        },
-        sessionId
-      )
+      
+      // 尝试多个选择器（包括 layui 的 div 按钮）
+      const buttonSelectors = [
+        loginButtonSelector,
+        // layui 框架的登录按钮
+        'div.btn',
+        'div[lay-submit]',
+        'div[lay-filter="login_btn"]',
+        // 文本匹配
+        'text="立即登录"',
+        'text="登录"',
+        'text="登陆"',
+        // 标准按钮
+        'button[type="submit"]',
+        'button:has-text("登录")',
+        'button:has-text("登陆")',
+        'button:has-text("Sign In")',
+        'button:has-text("Login")',
+        analysisResult.buttons[0]?.selector,
+        'button'
+      ].filter(Boolean)
 
-      if (!clickResult.success) {
-        logAI(`登录按钮点击失败，尝试替代选择器...`, sessionId)
-        const altResult = await mcpManager.callPlaywright(
+      let clickSuccess = false
+      for (const selector of buttonSelectors) {
+        if (!selector) continue
+        
+        logAI(`尝试点击按钮: ${selector}`, sessionId)
+        const clickResult = await mcpManager.callPlaywright(
           'click',
+          { selector },
+          sessionId
+        )
+        
+        if (clickResult.success) {
+          logAI(`成功点击按钮: ${selector}`, sessionId)
+          clickSuccess = true
+          break
+        }
+      }
+
+      if (!clickSuccess) {
+        // 最后尝试：使用JavaScript直接触发点击
+        logAI(`尝试使用JavaScript触发点击事件...`, sessionId)
+        const jsResult = await mcpManager.callPlaywright(
+          'evaluate',
           {
-            selector: analysisResult.buttons[0]?.selector || 'button[type="submit"]'
+            script: `
+              (function() {
+                // 首先尝试找到 layui 的登录按钮 (div.btn)
+                let divBtn = document.querySelector('div.btn');
+                if (divBtn) {
+                  divBtn.click();
+                  return 'div.btn';
+                }
+                
+                // 尝试找到 lay-submit 属性的元素
+                let laySubmit = document.querySelector('[lay-submit]');
+                if (laySubmit) {
+                  laySubmit.click();
+                  return 'lay-submit';
+                }
+                
+                // 尝试找到包含"立即登录"文本的元素
+                const allElements = document.querySelectorAll('div, span, a, button');
+                for (let el of allElements) {
+                  if (el.textContent && el.textContent.includes('立即登录')) {
+                    el.click();
+                    return '立即登录';
+                  }
+                }
+                
+                // 尝试找到包含"登录"文本的元素
+                for (let el of allElements) {
+                  if (el.textContent && (el.textContent.includes('登录') || el.textContent.includes('登陆'))) {
+                    el.click();
+                    return '登录';
+                  }
+                }
+                
+                // 尝试找到 id 为 hiddenTrigger 的按钮
+                let btn = document.getElementById('hiddenTrigger');
+                if (btn) {
+                  btn.click();
+                  return 'hiddenTrigger';
+                }
+                
+                // 尝试找到所有按钮中的提交按钮
+                const buttons = document.querySelectorAll('button[type="submit"]');
+                if (buttons.length > 0) {
+                  buttons[0].click();
+                  return 'submit';
+                }
+                
+                return false;
+              })()
+            `
           },
           sessionId
         )
-        if (!altResult.success) {
+        
+        if (!jsResult.success || !jsResult.data) {
           throw new Error('无法点击登录按钮')
         }
       }
 
-      // 步骤6：等待登录完成
-      logAI(`[步骤6] 等待登录完成...`, sessionId)
-      await new Promise(resolve => setTimeout(resolve, 3000))
+      // 步骤6：检测是否有滑块验证码
+      logAI(`[步骤6] 检测是否有滑块验证码...`, sessionId)
+      
+      // 检查页面是否有滑块验证码
+      const sliderCheckResult = await mcpManager.callPlaywright(
+        'evaluate',
+        {
+          script: `
+            (function() {
+              // 检查阿里云滑块验证码
+              const ncSlider = document.querySelector('#nc_1_n1z, .nc_wrapper, .nc-container, #nc');
+              if (ncSlider && ncSlider.offsetParent !== null) {
+                return { hasSlider: true, type: 'aliyun' };
+              }
+              
+              // 检查其他类型的验证码
+              const captcha = document.querySelector('.captcha, .verify-wrap, .geetest_holder');
+              if (captcha && captcha.offsetParent !== null) {
+                return { hasSlider: true, type: 'other' };
+              }
+              
+              return { hasSlider: false };
+            })()
+          `
+        },
+        sessionId
+      )
+      
+      if (sliderCheckResult.success && sliderCheckResult.data?.hasSlider) {
+        logAI(`[警告] 检测到滑块验证码 (${sliderCheckResult.data.type})，需要手动完成验证`, sessionId)
+        logSystem(`检测到滑块验证码，等待用户手动完成...`, sessionId)
+        // 等待更长时间让用户完成滑块验证
+        await new Promise(resolve => setTimeout(resolve, 10000))
+      } else {
+        logAI(`[步骤6] 未检测到滑块验证码，等待页面跳转...`, sessionId)
+        await new Promise(resolve => setTimeout(resolve, 3000))
+      }
 
-      // 步骤7：获取登录后的页面并验证
-      logAI(`[步骤7] 验证登录成功...`, sessionId)
+      // 步骤7：检测登录状态（通过 URL 或页面内容变化）
+      logAI(`[步骤7] 检测登录状态...`, sessionId)
+      
+      const loginStatusResult = await mcpManager.callPlaywright(
+        'evaluate',
+        {
+          script: `
+            (function() {
+              const url = window.location.href;
+              const hasLoginForm = document.querySelector('input[name="loginId"], input[name="loginPwd"]');
+              const hasUserInfo = document.querySelector('.user-info, .username, .avatar, .logout');
+              const hasMenu = document.querySelector('.menu, .sidebar, .nav-menu');
+              
+              return {
+                url: url,
+                isLoginPage: !!hasLoginForm,
+                hasUserInfo: !!hasUserInfo,
+                hasMenu: !!hasMenu,
+                pageTitle: document.title
+              };
+            })()
+          `
+        },
+        sessionId
+      )
+      
+      if (loginStatusResult.success) {
+        const status = loginStatusResult.data
+        logAI(`[登录状态检测] URL: ${status.url}`, sessionId)
+        logAI(`[登录状态检测] 是否在登录页: ${status.isLoginPage}`, sessionId)
+        logAI(`[登录状态检测] 是否有用户信息: ${status.hasUserInfo}`, sessionId)
+        logAI(`[登录状态检测] 是否有菜单: ${status.hasMenu}`, sessionId)
+        logAI(`[登录状态检测] 页面标题: ${status.pageTitle}`, sessionId)
+        
+        if (status.isLoginPage && !status.hasUserInfo) {
+          logAI(`[警告] 仍在登录页面，登录可能未成功`, sessionId)
+        }
+      }
+
+      // 步骤8：获取登录后的页面并验证
+      logAI(`[步骤8] 验证登录成功...`, sessionId)
       const afterLoginHtml = await mcpManager.callPlaywright(
         'get_visible_html',
         {},

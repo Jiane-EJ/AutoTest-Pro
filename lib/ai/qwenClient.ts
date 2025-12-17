@@ -40,8 +40,8 @@ export class QwenClient {
 
   async chatCompletion(request: QwenRequest, sessionId?: string): Promise<string> {
     try {
-      const userMessage = request.messages[request.messages.length - 1]?.content?.substring(0, 100) || ''
-      logAI(`调用Qwen API: ${userMessage}...`, sessionId)
+      const userMessage = request.messages[request.messages.length - 1]?.content || ''
+      logAI(`调用Qwen API: ${userMessage}`, sessionId)
 
       const response = await fetch(`${this.apiUrl}/chat/completions`, {
         method: 'POST',
