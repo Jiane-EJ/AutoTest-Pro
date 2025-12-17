@@ -436,8 +436,8 @@ export class AIClient {
   }
 
   /**
-   * 分析页面功能并生成测试步骤（高级方法）
-   */
+    * 分析页面功能并生成测试步骤（高级方法）
+    */
   async analyzePageForTesting(
     elements: any,
     requirement: string,
@@ -448,7 +448,7 @@ export class AIClient {
     const model = getModelForPurpose(this.provider, ModelPurpose.TEST_GEN)
     
     const analysisPrompt = `
-你是业务功能测试专家。请根据【实际获取到的页面信息】生成正向业务测试步骤。
+你是页面功能测试专家。请根据【实际获取到的页面元素】生成合理的用户操作测试步骤。
 
 ## 测试需求
 ${requirement}
@@ -457,44 +457,80 @@ ${requirement}
 - 页面标题: ${elements?.pageTitle || '未知'}
 - 页面URL: ${elements?.pageUrl || '未知'}
 
-## 实际获取到的页面元素
+## 实际获取到的页面元素详情
 
 ### 输入框 (共${elements?.inputs?.length || 0}个)
-${JSON.stringify(elements?.inputs || [], null, 2)}
-
-### 下拉框 (共${elements?.selects?.length || 0}个)
-${JSON.stringify(elements?.selects || [], null, 2)}
+${elements?.inputs?.map((input: any, index: number) => 
+`${index + 1}. Selector: ${input.selector}
+   - 类型: ${input.type || 'text'}
+   - Name: ${input.name || '无'}
+   - Placeholder: ${input.placeholder || '无'}
+   - Class: ${input.className || '无'}
+   - 可见: ${input.visible !== false ? '是' : '否'}
+   - Keywords: ${input.keywords ? input.keywords.join(', ') : '无'}
+`).join('\n') || '无'}
 
 ### 按钮 (共${elements?.buttons?.length || 0}个)
-${JSON.stringify(elements?.buttons || [], null, 2)}
+${elements?.buttons?.map((button: any, index: number) => 
+`${index + 1}. Selector: ${button.selector}
+   - 文本内容: "${button.text || '无'}"
+   - 类型: ${button.type || 'button'}
+   - ID: ${button.id || '无'}
+   - Class: ${button.className || '无'}
+   - 可见: ${button.visible !== false ? '是' : '否'}
+   - Keywords: ${button.keywords ? button.keywords.join(', ') : '无'}
+`).join('\n') || '无'}
+
+### 下拉框 (共${elements?.selects?.length || 0}个)
+${elements?.selects?.map((select: any, index: number) => 
+`${index + 1}. Selector: ${select.selector}
+   - 文本内容: "${select.text || '无'}"
+   - 类型: ${select.type || 'select'}
+   - 选项: ${JSON.stringify(select.options || [])}
+   - Keywords: ${select.keywords ? select.keywords.join(', ') : '无'}
+`).join('\n') || '无'}
 
 ### 表格 (共${elements?.tables?.length || 0}个)
-${JSON.stringify(elements?.tables || [], null, 2)}
+${elements?.tables?.map((table: any, index: number) => 
+`${index + 1}. Selector: ${table.selector}
+   - 行数: ${table.rowCount || '未知'}
+   - 列数: ${table.columnCount || '未知'}
+`).join('\n') || '无'}
 ${apiInfo || ''}
 ${errorInfo || ''}
 
-## 严格规则
-1. 【禁止猜测】只能使用上面列出的元素，不能凭空创造不存在的元素
-2. 【禁止猜测】selector必须使用元素中提供的selector，不能自己编造
-3. 只生成正向业务流程测试，模拟用户正常操作
-4. 有多少可操作元素就生成多少步骤，不要人为限制数量
-5. 如果有API响应数据，可以参考数据结构来生成合理的测试数据
-6. 不生成异常测试、边界测试、性能测试等
+## 测试步骤生成规则
+1. 【页面交互优先】优先测试用户界面交互功能，而非API接口验证
+2. 【基于元素属性】利用Keywords字段来判断元素功能，而不是猜测
+3. 【实际操作步骤】生成用户真实能执行的操作步骤：
+   - 输入框：填写有意义的测试数据（根据placeholder判断用途）
+   - 按钮：点击有功能的按钮（根据keywords判断功能）
+   - 下拉框：选择合理的选项值
+4. 【避免API依赖】不要生成API验证步骤，除非有明确的API状态元素需要验证
+5. 【合理顺序】按照用户实际操作流程的合理顺序排列步骤
+6. 【只使用真实元素】必须使用上面列出的真实selector
+
+## 操作类型说明
+- fill: 填写输入框
+- click: 点击按钮/链接
+- select: 选择下拉框选项
+- wait: 等待页面响应
+- verify: 验证元素状态（仅在必要时使用）
 
 ## 输出格式 (严格JSON)
 {
   "testSteps": [
     {
-      "action": "fill",
-      "selector": "元素中提供的selector",
-      "value": "合理的测试数据",
-      "description": "操作描述"
+      "action": "fill/click/select/wait/verify",
+      "selector": "必须从上面元素列表中选择真实存在的selector", 
+      "value": "基于输入框用途的合理测试数据",
+      "description": "基于元素Keywords的用户操作描述"
     }
   ],
-  "analysis": "基于实际元素和API的页面功能分析"
+  "analysis": "基于页面元素的用户界面功能分析和测试计划"
 }
 
-action类型: fill(填写输入框)、click(点击按钮)、select(选择下拉框)、verify(验证结果)
+注意：每个步骤必须基于实际存在的元素，生成用户真实可执行的操作。
 `
 
     return this.chatCompletion({
@@ -502,7 +538,7 @@ action类型: fill(填写输入框)、click(点击按钮)、select(选择下拉�
       messages: [
         {
           role: 'system',
-          content: '你是业务功能测试专家。严格规则：1.只能使用提供的元素，禁止猜测 2.selector必须来自元素数据 3.可参考API响应生成测试数据 4.只生成正向业务测试。输出有效JSON。'
+          content: '你是页面功能测试专家。基于实际页面元素生成用户交互测试步骤，优先测试界面功能而非API验证。利用元素的Keywords属性智能判断功能。'
         },
         {
           role: 'user',
@@ -510,7 +546,7 @@ action类型: fill(填写输入框)、click(点击按钮)、select(选择下拉�
         }
       ],
       temperature: 0.2,
-      max_tokens: 2500
+      max_tokens: 2000
     }, sessionId)
   }
 

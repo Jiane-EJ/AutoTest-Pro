@@ -304,37 +304,67 @@ ${context.consoleErrors.slice(0, 5).map((e: any) => `- ${e.text}`).join('\n')}
     elements?: PageElements
     error?: string
   }> {
+    // 提取所有有效的选择器
+    const validSelectors = {
+      inputs: elements.inputs.map(el => el.selector),
+      selects: elements.selects.map(el => el.selector),
+      buttons: elements.buttons.map(el => el.selector)
+    }
+
     const analysisPrompt = `
 你是业务功能测试专家。请根据【实际获取到的页面元素】生成正向业务测试步骤。
 
 ## 测试需求
 ${requirement}
 
-## 页面元素
+## 实际页面元素
 输入框: ${JSON.stringify(elements.inputs, null, 2)}
 下拉框: ${JSON.stringify(elements.selects, null, 2)}
 按钮: ${JSON.stringify(elements.buttons, null, 2)}
 
-## 严格规则
-1. 只能使用上面列出的元素，禁止猜测
-2. selector必须使用元素中提供的selector
-3. 只生成正向业务流程测试
+## 有效选择器列表
+- 输入框选择器: ${validSelectors.inputs.join(', ')}
+- 下拉框选择器: ${validSelectors.selects.join(', ')}
+- 按钮选择器: ${validSelectors.buttons.join(', ')}
 
-## 输出格式
+## 严格规则（违反规则将导致测试失败）
+1. 【绝对禁止】只能使用上面列出的元素，不能使用任何未列出的选择器
+2. 【绝对禁止】selector必须严格使用元素中提供的selector，不能修改或创造
+3. 【绝对禁止】不能使用通用选择器如"button"、"input"等
+4. 【绝对禁止】只生成正向业务流程测试
+5. 每个步骤的selector必须在有效选择器列表中
+
+## 输出格式（严格JSON）
 {
-  "testSteps": [{"action": "fill/click/select", "selector": "...", "value": "...", "description": "..."}],
-  "analysis": "页面功能分析"
+  "testSteps": [
+    {
+      "action": "fill",
+      "selector": "必须从上面的有效选择器列表中选择",
+      "value": "合理的测试数据",
+      "description": "操作描述"
+    }
+  ],
+  "analysis": "基于实际元素的页面功能分析"
 }
+
+## 选择器验证要求
+每个testSteps中的selector都必须是以下之一：
+${validSelectors.inputs.map(s => `- ${s}`).join('\n')}
+${validSelectors.selects.map(s => `- ${s}`).join('\n')}
+${validSelectors.buttons.map(s => `- ${s}`).join('\n')}
 `
 
     const aiClient = getAIClient()
     const aiAnalysis = await aiClient.chatCompletion(
       {
         messages: [
-          { role: 'system', content: '业务测试专家，只使用提供的元素，禁止猜测。输出JSON。' },
+          { 
+            role: 'system', 
+            content: '你是严格的业务测试专家。必须只使用提供的元素selector，违反此规则将导致测试失败。输出的JSON中每个selector都必须来自有效选择器列表。' 
+          },
           { role: 'user', content: analysisPrompt }
         ],
-        temperature: 0.2,
+        temperature: 0.1, // 降低温度以减少创造性
         max_tokens: 2000
       },
       sessionId
@@ -345,10 +375,36 @@ ${requirement}
       const jsonMatch = aiAnalysis.match(/\{[\s\S]*\}/)
       if (jsonMatch) {
         const parsed = JSON.parse(jsonMatch[0])
-        testSteps = parsed.testSteps || []
+        const rawTestSteps = parsed.testSteps || []
+        
+        // 严格验证每个步骤的选择器
+        testSteps = rawTestSteps.filter((step: any) => {
+          const selector = step.selector
+          const isValid = validSelectors.inputs.includes(selector) || 
+                        validSelectors.selects.includes(selector) || 
+                        validSelectors.buttons.includes(selector)
+          
+          if (!isValid) {
+            logAI(`⚠️ 选择器无效，已过滤: ${selector}`, getModelName(), sessionId)
+            return false
+          }
+          return true
+        })
+        
+        logAI(`✅ 验证通过 ${testSteps.length}/${rawTestSteps.length} 个测试步骤`, getModelName(), sessionId)
       }
     } catch (e) {
-      // ignore
+      logAI(`解析AI响应失败: ${e}`, getModelName(), sessionId)
+    }
+
+    // 如果没有有效的测试步骤，生成基础测试
+    if (testSteps.length === 0 && elements.buttons.length > 0) {
+      logAI(`生成基础测试步骤作为备用方案`, getModelName(), sessionId)
+      testSteps = elements.buttons.slice(0, 3).map((btn, index) => ({
+        action: 'click',
+        selector: btn.selector,
+        description: `点击按钮: ${btn.text || btn.selector}`
+      }))
     }
 
     return { success: true, testSteps, analysis: aiAnalysis, elements }
@@ -368,6 +424,12 @@ ${requirement}
     analysis: string
     error?: string
   }> {
+    // 提取所有有效的选择器
+    const validSelectors = {
+      inputs: elements.inputs.map(el => el.selector),
+      buttons: elements.buttons.map(el => el.selector)
+    }
+
     const analysisPrompt = `
 你是业务功能测试专家。请根据【实际获取到的页面元素】生成正向业务测试步骤。
 
@@ -378,26 +440,47 @@ ${requirement}
 输入框: ${JSON.stringify(elements.inputs, null, 2)}
 按钮: ${JSON.stringify(elements.buttons, null, 2)}
 
-## 严格规则
-1. 只能使用上面列出的元素，禁止猜测
-2. selector必须使用元素中提供的selector
-3. 只生成正向业务流程测试
+## 有效选择器列表
+- 输入框选择器: ${validSelectors.inputs.join(', ')}
+- 按钮选择器: ${validSelectors.buttons.join(', ')}
 
-## 输出格式
+## 严格规则（违反规则将导致测试失败）
+1. 【绝对禁止】只能使用上面列出的元素，不能使用任何未列出的选择器
+2. 【绝对禁止】selector必须严格使用元素中提供的selector，不能修改或创造
+3. 【绝对禁止】不能使用通用选择器如"button"、"input"等
+4. 【绝对禁止】只生成正向业务流程测试
+5. 每个步骤的selector必须在有效选择器列表中
+
+## 输出格式（严格JSON）
 {
-  "testSteps": [{"action": "fill/click", "selector": "...", "value": "...", "description": "..."}],
-  "analysis": "页面功能分析"
+  "testSteps": [
+    {
+      "action": "fill/click",
+      "selector": "必须从上面的有效选择器列表中选择",
+      "value": "合理的测试数据",
+      "description": "操作描述"
+    }
+  ],
+  "analysis": "基于实际元素的页面功能分析"
 }
+
+## 选择器验证要求
+每个testSteps中的selector都必须是以下之一：
+${validSelectors.inputs.map(s => `- ${s}`).join('\n')}
+${validSelectors.buttons.map(s => `- ${s}`).join('\n')}
 `
 
     const aiClient = getAIClient()
     const aiAnalysis = await aiClient.chatCompletion(
       {
         messages: [
-          { role: 'system', content: '业务测试专家，只使用提供的元素，禁止猜测。输出JSON。' },
+          { 
+            role: 'system', 
+            content: '你是严格的业务测试专家。必须只使用提供的元素selector，违反此规则将导致测试失败。输出的JSON中每个selector都必须来自有效选择器列表。' 
+          },
           { role: 'user', content: analysisPrompt }
         ],
-        temperature: 0.2,
+        temperature: 0.1, // 降低温度以减少创造性
         max_tokens: 1500
       },
       sessionId
@@ -408,10 +491,35 @@ ${requirement}
       const jsonMatch = aiAnalysis.match(/\{[\s\S]*\}/)
       if (jsonMatch) {
         const parsed = JSON.parse(jsonMatch[0])
-        testSteps = parsed.testSteps || []
+        const rawTestSteps = parsed.testSteps || []
+        
+        // 严格验证每个步骤的选择器
+        testSteps = rawTestSteps.filter((step: any) => {
+          const selector = step.selector
+          const isValid = validSelectors.inputs.includes(selector) || 
+                        validSelectors.buttons.includes(selector)
+          
+          if (!isValid) {
+            logAI(`⚠️ 选择器无效，已过滤: ${selector}`, getModelName(), sessionId)
+            return false
+          }
+          return true
+        })
+        
+        logAI(`✅ 验证通过 ${testSteps.length}/${rawTestSteps.length} 个测试步骤`, getModelName(), sessionId)
       }
     } catch (e) {
-      // ignore
+      logAI(`解析AI响应失败: ${e}`, getModelName(), sessionId)
+    }
+
+    // 如果没有有效的测试步骤，生成基础测试
+    if (testSteps.length === 0 && elements.buttons.length > 0) {
+      logAI(`生成基础测试步骤作为备用方案`, getModelName(), sessionId)
+      testSteps = elements.buttons.slice(0, 3).map((btn, index) => ({
+        action: 'click',
+        selector: btn.selector,
+        description: `点击按钮: ${btn.text || btn.selector}`
+      }))
     }
 
     return { success: true, testSteps, analysis: aiAnalysis }

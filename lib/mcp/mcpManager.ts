@@ -455,6 +455,107 @@ export class MCPManager {
     logMCP(`[人类模拟] 点击完成`, tool, sessionId)
   }
 
+  /**
+   * 提取元素的功能关键词用于AI判断
+   */
+  private extractFunctionalKeywords(text: string, className: string, title: string, ariaLabel: string): string[] {
+    const keywords: string[] = []
+    const allText = `${text} ${className} ${title} ${ariaLabel}`.toLowerCase()
+    
+    // 搜索相关关键词
+    if (allText.includes('搜索') || allText.includes('查询') || allText.includes('search') || allText.includes('query')) {
+      keywords.push('搜索')
+    }
+    
+    // 新增相关关键词
+    if (allText.includes('新增') || allText.includes('添加') || allText.includes('新建') || allText.includes('add') || allText.includes('create') || allText.includes('new')) {
+      keywords.push('新增')
+    }
+    
+    // 编辑相关关键词
+    if (allText.includes('编辑') || allText.includes('修改') || allText.includes('更改') || allText.includes('edit') || allText.includes('update') || allText.includes('modify')) {
+      keywords.push('编辑')
+    }
+    
+    // 删除相关关键词
+    if (allText.includes('删除') || allText.includes('移除') || allText.includes('del') || allText.includes('delete') || allText.includes('remove')) {
+      keywords.push('删除')
+    }
+    
+    // 重置相关关键词
+    if (allText.includes('重置') || allText.includes('清空') || allText.includes('清除') || allText.includes('reset') || allText.includes('clear')) {
+      keywords.push('重置')
+    }
+    
+    // 保存相关关键词
+    if (allText.includes('保存') || allText.includes('提交') || allText.includes('确认') || allText.includes('save') || allText.includes('submit') || allText.includes('confirm')) {
+      keywords.push('保存')
+    }
+    
+    // 查看相关关键词
+    if (allText.includes('查看') || allText.includes('详情') || allText.includes('view') || allText.includes('detail') || allText.includes('show')) {
+      keywords.push('查看')
+    }
+    
+    // 导出相关关键词
+    if (allText.includes('导出') || allText.includes('下载') || allText.includes('export') || allText.includes('download')) {
+      keywords.push('导出')
+    }
+    
+    // 导入相关关键词
+    if (allText.includes('导入') || allText.includes('批量导入') || allText.includes('import') || allText.includes('batch')) {
+      keywords.push('导入')
+    }
+    
+    // 分页相关关键词
+    if (allText.includes('下一页') || allText.includes('上一页') || allText.includes('next') || allText.includes('prev') || allText.includes('page')) {
+      keywords.push('分页')
+    }
+    
+    return keywords
+  }
+
+  /**
+   * 检测当前页面类型
+   */
+  private async detectPageType(page: Page, sessionId?: string): Promise<'login' | 'functional' | 'unknown'> {
+    try {
+      const pageAnalysis = await page.evaluate(() => {
+        const hasLoginForm = document.querySelector('input[name="loginId"], input[name="loginPwd"], #loginPhone')
+        const hasLoginButton = Array.from(document.querySelectorAll('*')).some(el => 
+          el.textContent && (el.textContent.includes('登录') || el.textContent.includes('登陆') || el.textContent.includes('Login'))
+        )
+        const hasUserInfo = document.querySelector('.user-info, .username, .avatar, .logout')
+        const hasMenu = document.querySelector('.menu, .sidebar, .nav-menu, .layui-nav, .layui-side')
+        const hasFunctionalElements = document.querySelector('.search-page, .table, .el-table, button:not([type="submit"])')
+        
+        return {
+          hasLoginForm: !!hasLoginForm,
+          hasLoginButton: hasLoginButton,
+          hasUserInfo: !!hasUserInfo,
+          hasMenu: !!hasMenu,
+          hasFunctionalElements: !!hasFunctionalElements,
+          url: window.location.href,
+          title: document.title
+        }
+      })
+      
+      logMCP(`页面分析结果: ${JSON.stringify(pageAnalysis)}`, 'playwright', sessionId)
+      
+      // 判断页面类型
+      if (pageAnalysis.hasLoginForm && pageAnalysis.hasLoginButton && !pageAnalysis.hasUserInfo && !pageAnalysis.hasMenu) {
+        return 'login'
+      } else if ((pageAnalysis.hasUserInfo || pageAnalysis.hasMenu || pageAnalysis.hasFunctionalElements) && !pageAnalysis.hasLoginForm) {
+        return 'functional'
+      } else {
+        return 'unknown'
+      }
+    } catch (error) {
+      logMCP(`页面类型检测失败: ${error}`, 'playwright', sessionId)
+      return 'unknown'
+    }
+  }
+
   private async realClick(page: Page, selector: string, sessionId?: string): Promise<MCPResult> {
     const tool = 'playwright'
     try {
@@ -478,23 +579,58 @@ export class MCPManager {
         await page.waitForSelector(selector, { timeout: 5000 })
         await this.humanLikeClickBySelector(page, selector, sessionId)
         logMCP(`点击成功: ${selector}`, tool, sessionId)
+        return {
+          success: true,
+          data: { status: 'completed', selector }
+        }
       } catch (waitError) {
         logMCP(`元素 [${selector}] 未找到，尝试使用替代选择器...`, tool, sessionId)
         
-        // 尝试替代选择器（包括 layui 的 div 按钮）
-        const alternativeSelectors = [
-          // layui 框架的登录按钮
-          `div.btn`,
-          `div[lay-submit]`,
-          `div[lay-filter="login_btn"]`,
-          // 标准按钮
-          `button[id="${selector.replace('#', '')}"]`,
-          `button[name="${selector.replace('#', '')}"]`,
-          `button:has-text("登录")`,
-          `button:has-text("登录按钮")`,
-          `button[type="submit"]`,
-          `input[type="submit"]`
-        ]
+        // 检测当前页面类型
+        const pageType = await this.detectPageType(page, sessionId)
+        logMCP(`检测到页面类型: ${pageType}`, tool, sessionId)
+        
+        // 根据页面类型使用不同的替代选择器
+        let alternativeSelectors: string[] = []
+        
+        if (pageType === 'login') {
+          // 登录页面的替代选择器
+          alternativeSelectors = [
+            // layui 框架的登录按钮
+            `div.btn`,
+            `div[lay-submit]`,
+            `div[lay-filter="login_btn"]`,
+            // 标准登录按钮
+            `button[id="${selector.replace('#', '')}"]`,
+            `button[name="${selector.replace('#', '')}"]`,
+            `button:has-text("登录")`,
+            `button:has-text("登录按钮")`,
+            `button[type="submit"]`,
+            `input[type="submit"]`
+          ]
+        } else if (pageType === 'functional') {
+          // 功能页面的替代选择器（移除登录相关的）
+          alternativeSelectors = [
+            // 通用按钮选择器
+            `button[id="${selector.replace('#', '')}"]`,
+            `button[name="${selector.replace('#', '')}"]`,
+            `button[type="button"]`,
+            `button:not([type="submit"])`,
+            // 如果选择器是通用按钮，尝试查找常见的功能按钮
+            '.btn:not(.btn-login)',
+            '.el-button:not(.el-button--primary)',
+            'button[class*="btn"]'
+          ]
+        } else {
+          // 未知页面，使用通用选择器
+          alternativeSelectors = [
+            `button[id="${selector.replace('#', '')}"]`,
+            `button[name="${selector.replace('#', '')}"]`,
+            `button[type="button"]`,
+            `div.btn`,
+            `button`
+          ]
+        }
         
         let found = false
         for (const altSelector of alternativeSelectors) {
@@ -511,25 +647,61 @@ export class MCPManager {
           }
         }
         
-        // 尝试使用文本查找（多个关键词）
+        // 尝试使用文本查找（根据页面类型使用不同关键词）
         if (!found) {
-          const loginTexts = [
-            '立即登录',
-            '登录',
-            '登陆',
-            '登 录',
-            '登 陆',
-            'Sign In',
-            'Login',
-            'Submit'
-          ]
+          let searchTexts: string[] = []
           
-          for (const text of loginTexts) {
+          if (pageType === 'login') {
+            // 登录页面使用登录相关文本
+            searchTexts = [
+              '立即登录',
+              '登录',
+              '登陆',
+              '登 录',
+              '登 陆',
+              'Sign In',
+              'Login',
+              'Submit'
+            ]
+          } else if (pageType === 'functional') {
+            // 功能页面使用功能相关文本
+            searchTexts = [
+              '查询',
+              '搜索',
+              '新增',
+              '添加',
+              '编辑',
+              '修改',
+              '删除',
+              '重置',
+              '确定',
+              '提交',
+              '保存',
+              '取消',
+              '刷新',
+              '导出',
+              '查看',
+              '操作'
+            ]
+          } else {
+            // 未知页面使用通用文本
+            searchTexts = [
+              '确定',
+              '提交',
+              '保存',
+              '取消',
+              '查询',
+              '搜索',
+              '按钮'
+            ]
+          }
+          
+          for (const text of searchTexts) {
             try {
               logMCP(`尝试通过文本"${text}"查找按钮...`, tool, sessionId)
-              const loginBtn = page.getByText(text, { exact: false })
+              const textBtn = page.getByText(text, { exact: false })
               // 使用人类模拟点击
-              await this.humanLikeClick(page, loginBtn.first(), sessionId)
+              await this.humanLikeClick(page, textBtn.first(), sessionId)
               found = true
               logMCP(`通过文本"${text}"点击成功`, tool, sessionId)
               break
@@ -660,11 +832,11 @@ export class MCPManager {
           selector: el.id ? `#${el.id}` : el.name ? `button[name="${el.name}"]` : 'button'
         }))
 
-        return { inputs, buttons }
+        return { success: true, data: { inputs, buttons } }
       })
 
       logMCP(`页面元素调试: ${JSON.stringify(elements)}`, tool, sessionId)
-      return { success: true, data: elements }
+      return { success: true, data: elements.data || elements }
     } catch (error) {
       return { success: false, error: error instanceof Error ? error.message : String(error) }
     }
@@ -684,7 +856,64 @@ export class MCPManager {
 
       logMCP('获取页面可交互元素...', tool, sessionId)
 
-      const elements = await this.page.evaluate(() => {
+        // 辅助函数：提取功能关键词（全局函数）
+        const extractFunctionalKeywords = (text: string, className: string, title: string, ariaLabel: string): string[] => {
+          const keywords: string[] = []
+          const allText = `${text} ${className} ${title} ${ariaLabel}`.toLowerCase()
+          
+          // 搜索相关关键词
+          if (allText.includes('搜索') || allText.includes('查询') || allText.includes('search') || allText.includes('query')) {
+            keywords.push('搜索')
+          }
+          
+          // 新增相关关键词
+          if (allText.includes('新增') || allText.includes('添加') || allText.includes('新建') || allText.includes('add') || allText.includes('create') || allText.includes('new')) {
+            keywords.push('新增')
+          }
+          
+          // 编辑相关关键词
+          if (allText.includes('编辑') || allText.includes('修改') || allText.includes('更改') || allText.includes('edit') || allText.includes('update') || allText.includes('modify')) {
+            keywords.push('编辑')
+          }
+          
+          // 删除相关关键词
+          if (allText.includes('删除') || allText.includes('移除') || allText.includes('del') || allText.includes('delete') || allText.includes('remove')) {
+            keywords.push('删除')
+          }
+          
+          // 重置相关关键词
+          if (allText.includes('重置') || allText.includes('清空') || allText.includes('清除') || allText.includes('reset') || allText.includes('clear')) {
+            keywords.push('重置')
+          }
+          
+          // 保存相关关键词
+          if (allText.includes('保存') || allText.includes('提交') || allText.includes('确认') || allText.includes('save') || allText.includes('submit') || allText.includes('confirm')) {
+            keywords.push('保存')
+          }
+          
+          // 查看相关关键词
+          if (allText.includes('查看') || allText.includes('详情') || allText.includes('view') || allText.includes('detail') || allText.includes('show')) {
+            keywords.push('查看')
+          }
+          
+          // 导出相关关键词
+          if (allText.includes('导出') || allText.includes('下载') || allText.includes('export') || allText.includes('download')) {
+            keywords.push('导出')
+          }
+          
+          // 导入相关关键词
+          if (allText.includes('导入') || allText.includes('批量导入') || allText.includes('import') || allText.includes('batch')) {
+            keywords.push('导入')
+          }
+          
+          // 分页相关关键词
+          if (allText.includes('下一页') || allText.includes('上一页') || allText.includes('next') || allText.includes('prev') || allText.includes('page')) {
+            keywords.push('分页')
+          }
+          
+          return keywords
+        }
+
         // 辅助函数：生成唯一选择器
         const getSelector = (el: Element): string => {
           if (el.id) return `#${el.id}`
@@ -771,13 +1000,25 @@ export class MCPManager {
             if (seenButtons.has(key)) return
             seenButtons.add(key)
             
+            // 获取更多元素属性用于AI智能判断
+            const className = el.className || ''
+            const title = el.getAttribute('title') || ''
+            const ariaLabel = el.getAttribute('aria-label') || ''
+            const disabled = (el as HTMLButtonElement).disabled || el.classList.contains('is-disabled') || el.classList.contains('disabled')
+            
             buttons.push({
               type: 'button',
               selector: getSelector(el),
               text: text.substring(0, 50),
               id: el.id || '',
-              disabled: (el as HTMLButtonElement).disabled || el.classList.contains('is-disabled'),
-              buttonType: el.getAttribute('type') || ''
+              name: el.getAttribute('name') || '',
+              className: className,
+              title: title,
+              ariaLabel: ariaLabel,
+              disabled: disabled,
+              buttonType: el.getAttribute('type') || '',
+                  // 添加功能关键词判断
+              keywords: extractFunctionalKeywords(text, className, title, ariaLabel)
             })
           })
         })
@@ -827,16 +1068,10 @@ export class MCPManager {
         })
 
         return {
-          inputs,
-          selects,
-          buttons,
-          tables,
-          forms,
-          links: links.slice(0, 20), // 最多20个链接
-          pageTitle: document.title,
-          pageUrl: window.location.href
+          success: true,
+          data: elements
         }
-      })
+      
 
       logMCP(`获取到元素: ${elements.inputs.length}个输入框, ${elements.selects.length}个下拉框, ${elements.buttons.length}个按钮, ${elements.tables.length}个表格`, tool, sessionId)
       
@@ -1087,7 +1322,7 @@ export class MCPManager {
         }
       }
       
-      logMCP(`页面上下文: ${context.summary.inputCount}输入框, ${context.summary.buttonCount}按钮, ${context.summary.apiCount}个API响应, ${context.summary.errorCount}个错误`, tool, sessionId)
+      logMCP(`页面上下文: ${context.summary.inputCount}输入框, ${context.summary.buttonCount}按钮, ${context.summary.apiCount}个API响应`, tool, sessionId)
       
       return { success: true, data: context }
     } catch (error) {
