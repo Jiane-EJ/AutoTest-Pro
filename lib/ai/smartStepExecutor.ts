@@ -300,7 +300,7 @@ export class SmartStepExecutor {
               const url = window.location.href;
               const hasLoginForm = document.querySelector('input[name="loginId"], input[name="loginPwd"]');
               const hasUserInfo = document.querySelector('.user-info, .username, .avatar, .logout');
-              const hasMenu = document.querySelector('.menu, .sidebar, .nav-menu');
+              const hasMenu = document.querySelector('.menu, .sidebar, .nav-menu, .layui-nav, .layui-side');
               
               return {
                 url: url,
@@ -315,17 +315,20 @@ export class SmartStepExecutor {
         sessionId
       )
       
-      if (loginStatusResult.success) {
+      // 安全检查：确保返回结果有效
+      if (loginStatusResult.success && loginStatusResult.data) {
         const status = loginStatusResult.data
-        logAI(`[登录状态检测] URL: ${status.url}`, sessionId)
+        logAI(`[登录状态检测] URL: ${status.url || '未知'}`, sessionId)
         logAI(`[登录状态检测] 是否在登录页: ${status.isLoginPage}`, sessionId)
         logAI(`[登录状态检测] 是否有用户信息: ${status.hasUserInfo}`, sessionId)
         logAI(`[登录状态检测] 是否有菜单: ${status.hasMenu}`, sessionId)
-        logAI(`[登录状态检测] 页面标题: ${status.pageTitle}`, sessionId)
+        logAI(`[登录状态检测] 页面标题: ${status.pageTitle || '未知'}`, sessionId)
         
-        if (status.isLoginPage && !status.hasUserInfo) {
+        if (status.isLoginPage && !status.hasUserInfo && !status.hasMenu) {
           logAI(`[警告] 仍在登录页面，登录可能未成功`, sessionId)
         }
+      } else {
+        logAI(`[警告] 登录状态检测返回无效结果，继续执行...`, sessionId)
       }
 
       // 步骤8：获取登录后的页面并验证
@@ -505,6 +508,243 @@ ${analysisResult.analysis}
     } catch (error) {
       const errorMsg = error instanceof Error ? error.message : String(error)
       logError(`导航执行失败: ${errorMsg}`, error as Error, sessionId)
+      return {
+        success: false,
+        error: errorMsg,
+        duration: Date.now() - startTime
+      }
+    }
+  }
+
+  /**
+   * 通过菜单导航到指定页面（改进版）
+   * 不再直接拼接URL，而是通过AI分析页面菜单结构，模拟点击菜单
+   */
+  static async navigateByMenu(
+    context: StepExecutionContext,
+    menuPath: string
+  ): Promise<StepResult> {
+    const startTime = Date.now()
+    const { sessionId } = context
+
+    try {
+      logSystem(`开始通过菜单导航到: ${menuPath}`, sessionId)
+
+      // 步骤1：获取当前页面HTML，分析菜单结构
+      logAI(`[菜单导航] 步骤1: 获取页面菜单结构...`, sessionId)
+      const pageHtmlResult = await mcpManager.callPlaywright(
+        'get_visible_html',
+        {},
+        sessionId
+      )
+
+      if (!pageHtmlResult.success) {
+        throw new Error('获取页面HTML失败')
+      }
+
+      // 步骤2：AI分析菜单结构，找到目标菜单的选择器
+      logAI(`[菜单导航] 步骤2: AI分析菜单结构...`, sessionId)
+      
+      const menuParts = menuPath.split('-').map(p => p.trim())
+      const menuAnalysisPrompt = `
+请分析以下页面的菜单结构，找到导航到"${menuPath}"的方法。
+
+菜单路径：${menuParts.join(' -> ')}
+
+请返回JSON格式的操作步骤：
+{
+  "found": true/false,
+  "steps": [
+    {
+      "action": "click",
+      "selector": "菜单项的CSS选择器",
+      "description": "点击xxx菜单"
+    }
+  ],
+  "notes": "备注信息"
+}
+
+常见的菜单选择器模式：
+- layui框架: .layui-nav-item, .layui-nav-child, [lay-href]
+- 普通菜单: .menu-item, .nav-item, .sidebar-item
+- 文本匹配: text="菜单名称"
+
+请根据页面实际结构返回正确的选择器。
+`
+
+      const menuAnalysisResult = await qwenClient.chatCompletion(
+        {
+          model: 'qwen-vl-max',
+          messages: [
+            {
+              role: 'system',
+              content: '你是一个专业的Web页面分析专家，擅长分析页面菜单结构并提供准确的CSS选择器。'
+            },
+            {
+              role: 'user',
+              content: `${menuAnalysisPrompt}\n\n页面HTML片段（菜单相关部分）：\n${pageHtmlResult.data?.substring(0, 15000) || ''}`
+            }
+          ],
+          temperature: 0.3,
+          max_tokens: 1000
+        },
+        sessionId
+      )
+
+      logAI(`[菜单导航] AI分析结果: ${menuAnalysisResult.substring(0, 300)}...`, sessionId)
+
+      // 解析AI返回的菜单操作步骤
+      let menuSteps: Array<{ action: string; selector: string; description: string }> = []
+      
+      try {
+        const jsonMatch = menuAnalysisResult.match(/\{[\s\S]*\}/)
+        if (jsonMatch) {
+          const parsed = JSON.parse(jsonMatch[0])
+          if (parsed.found && parsed.steps) {
+            menuSteps = parsed.steps
+          }
+        }
+      } catch (e) {
+        logAI(`[菜单导航] 无法解析AI返回的JSON，尝试使用默认选择器`, sessionId)
+      }
+
+      // 如果AI没有找到，尝试使用通用选择器
+      if (menuSteps.length === 0) {
+        logAI(`[菜单导航] 使用通用选择器尝试定位菜单...`, sessionId)
+        
+        // 构建通用选择器列表
+        for (const menuName of menuParts) {
+          menuSteps.push({
+            action: 'click',
+            selector: `text="${menuName}"`,
+            description: `点击菜单: ${menuName}`
+          })
+        }
+      }
+
+      // 步骤3：依次点击菜单项
+      logAI(`[菜单导航] 步骤3: 执行菜单点击操作...`, sessionId)
+      
+      for (let i = 0; i < menuSteps.length; i++) {
+        const step = menuSteps[i]
+        logAI(`[菜单导航] 执行: ${step.description} (${step.selector})`, sessionId)
+        
+        // 尝试多种选择器
+        const selectorsToTry = [
+          step.selector,
+          // layui 框架选择器
+          `.layui-nav-item:has-text("${menuParts[i]}")`,
+          `.layui-nav-child a:has-text("${menuParts[i]}")`,
+          `[lay-href*="${menuParts[i]}"]`,
+          // 通用选择器
+          `a:has-text("${menuParts[i]}")`,
+          `span:has-text("${menuParts[i]}")`,
+          `.menu-item:has-text("${menuParts[i]}")`,
+          `.nav-item:has-text("${menuParts[i]}")`,
+          `text="${menuParts[i]}"`
+        ]
+
+        let clickSuccess = false
+        for (const selector of selectorsToTry) {
+          try {
+            const clickResult = await mcpManager.callPlaywright(
+              'click',
+              { selector },
+              sessionId
+            )
+            
+            if (clickResult.success) {
+              logAI(`[菜单导航] 成功点击: ${selector}`, sessionId)
+              clickSuccess = true
+              // 等待页面响应
+              await new Promise(resolve => setTimeout(resolve, 1000))
+              break
+            }
+          } catch (e) {
+            // 继续尝试下一个选择器
+          }
+        }
+
+        if (!clickSuccess) {
+          // 尝试使用JavaScript点击
+          logAI(`[菜单导航] 尝试使用JavaScript点击菜单: ${menuParts[i]}`, sessionId)
+          const jsClickResult = await mcpManager.callPlaywright(
+            'evaluate',
+            {
+              script: `
+                (function() {
+                  const menuName = "${menuParts[i]}";
+                  
+                  // 查找包含菜单文本的所有元素
+                  const allElements = document.querySelectorAll('a, span, div, li');
+                  for (let el of allElements) {
+                    if (el.textContent && el.textContent.trim() === menuName) {
+                      el.click();
+                      return { success: true, element: el.tagName };
+                    }
+                  }
+                  
+                  // 查找包含菜单文本的元素（部分匹配）
+                  for (let el of allElements) {
+                    if (el.textContent && el.textContent.includes(menuName)) {
+                      el.click();
+                      return { success: true, element: el.tagName, partial: true };
+                    }
+                  }
+                  
+                  return { success: false };
+                })()
+              `
+            },
+            sessionId
+          )
+
+          if (jsClickResult.success && jsClickResult.data?.success) {
+            logAI(`[菜单导航] JavaScript点击成功: ${menuParts[i]}`, sessionId)
+            await new Promise(resolve => setTimeout(resolve, 1000))
+          } else {
+            logAI(`[菜单导航] 警告: 无法点击菜单项 "${menuParts[i]}"，继续尝试...`, sessionId)
+          }
+        }
+      }
+
+      // 步骤4：验证导航结果
+      logAI(`[菜单导航] 步骤4: 验证导航结果...`, sessionId)
+      await new Promise(resolve => setTimeout(resolve, 2000))
+      
+      const verifyResult = await mcpManager.callPlaywright(
+        'evaluate',
+        {
+          script: `
+            (function() {
+              return {
+                url: window.location.href,
+                title: document.title,
+                hasContent: document.body.innerText.length > 100
+              };
+            })()
+          `
+        },
+        sessionId
+      )
+
+      if (verifyResult.success && verifyResult.data) {
+        logAI(`[菜单导航] 当前URL: ${verifyResult.data.url}`, sessionId)
+        logAI(`[菜单导航] 页面标题: ${verifyResult.data.title}`, sessionId)
+      }
+
+      return {
+        success: true,
+        data: {
+          menuPath,
+          steps: menuSteps.length,
+          verification: verifyResult.data
+        },
+        duration: Date.now() - startTime
+      }
+    } catch (error) {
+      const errorMsg = error instanceof Error ? error.message : String(error)
+      logError(`菜单导航执行失败: ${errorMsg}`, error as Error, sessionId)
       return {
         success: false,
         error: errorMsg,

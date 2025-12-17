@@ -142,15 +142,43 @@ export async function runAITest(sessionId: string, config: TestConfig) {
                 break
                 
               case 4:
-                // 导航到功能测试页面
-                logAI(`[步骤4] 导航到功能测试页面...`, sessionId)
-                const funcNavResult = await SmartStepExecutor.executeNavigation(
+                // 通过菜单导航到功能测试页面（不再直接拼接URL）
+                logAI(`[步骤4] 通过菜单导航到功能测试页面...`, sessionId)
+                
+                // 从 requirement 中提取菜单路径
+                // 例如: "完整测试小区管理-小区信息管理下的功能" -> "小区管理-小区信息管理"
+                const menuPathMatch = config.requirement.match(/测试(.+?)下的功能/)
+                const menuPath = menuPathMatch ? menuPathMatch[1] : '小区管理-小区信息管理'
+                
+                logAI(`[步骤4] 目标菜单路径: ${menuPath}`, sessionId)
+                
+                const funcNavResult = await SmartStepExecutor.navigateByMenu(
                   { sessionId, stepId: step.id, stepTitle: step.title, config },
-                  `${config.url}/#小区管理-小区信息管理`
+                  menuPath
                 )
+                
                 if (!funcNavResult.success) {
-                  throw new Error(funcNavResult.error || '导航失败')
+                  logAI(`[步骤4] 菜单导航失败，尝试等待后重试...`, sessionId)
+                  // 等待一下再重试
+                  await new Promise(resolve => setTimeout(resolve, 2000))
+                  const retryResult = await SmartStepExecutor.navigateByMenu(
+                    { sessionId, stepId: step.id, stepTitle: step.title, config },
+                    menuPath
+                  )
+                  if (!retryResult.success) {
+                    throw new Error(retryResult.error || '菜单导航失败')
+                  }
                 }
+                
+                await addLog(sessionId, {
+                  timestamp: new Date().toLocaleTimeString('zh-CN', { 
+                    hour: '2-digit', 
+                    minute: '2-digit', 
+                    second: '2-digit' 
+                  }),
+                  type: 'ai',
+                  message: `✓ 菜单导航成功 | 路径: ${menuPath}`
+                })
                 break
                 
               case 5:

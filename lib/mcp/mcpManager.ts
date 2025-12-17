@@ -526,11 +526,13 @@ export class MCPManager {
   async cleanup() {
     try {
       if (this.page) {
+        // Jiane==
         // await this.page.close()
         logMCP(`已关闭页面`, undefined)
       }
       
       if (this.browser) {
+        // Jiane==
         // await this.browser.close()
         logMCP(`已关闭浏览器`, undefined)
       }
