@@ -11,7 +11,7 @@ export interface TimeoutConfig {
 export class TimeoutManager {
   private static instance: TimeoutManager
   private timeouts: Map<string, NodeJS.Timeout> = new Map()
-  private warnings: Map<string, Date> = new Map()
+  private warningTimers: Map<string, NodeJS.Timeout> = new Map()
 
   private constructor() {}
 
@@ -51,7 +51,8 @@ export class TimeoutManager {
         this.handleTimeoutWarning(operationName, config, sessionId, timeoutId)
       }, config.warningThreshold)
 
-      this.warnings.set(timeoutId, new Date())
+      // 保存警告定时器，以便后续清理
+      this.warningTimers.set(timeoutId, warningTimer)
 
       // 执行操作
       operation()
@@ -113,11 +114,17 @@ export class TimeoutManager {
 
   // 清除超时
   clearTimeout(timeoutId: string) {
+    // 清除超时定时器
     const timer = this.timeouts.get(timeoutId)
     if (timer) {
       clearTimeout(timer)
       this.timeouts.delete(timeoutId)
-      this.warnings.delete(timeoutId)
+    }
+    // 清除警告定时器
+    const warningTimer = this.warningTimers.get(timeoutId)
+    if (warningTimer) {
+      clearTimeout(warningTimer)
+      this.warningTimers.delete(timeoutId)
     }
   }
 
@@ -125,7 +132,8 @@ export class TimeoutManager {
   clearAllTimeouts() {
     this.timeouts.forEach((timer) => clearTimeout(timer))
     this.timeouts.clear()
-    this.warnings.clear()
+    this.warningTimers.forEach((timer) => clearTimeout(timer))
+    this.warningTimers.clear()
   }
 
   // 获取活动超时数量
@@ -148,12 +156,12 @@ export class TimeoutManager {
 // 导出单例实例
 export const timeoutManager = TimeoutManager.getInstance()
 
-// 常用的超时配置
+// 常用的超时配置（警告阈值统一为60秒）
 export const TIMEOUT_CONFIGS = {
-  QUICK: { maxDuration: 5000, warningThreshold: 3000, timeoutStrategy: 'abort' as const },
-  NORMAL: { maxDuration: 30000, warningThreshold: 20000, timeoutStrategy: 'retry' as const },
-  LONG: { maxDuration: 120000, warningThreshold: 90000, timeoutStrategy: 'continue' as const },
-  AI_REQUEST: { maxDuration: 60000, warningThreshold: 45000, timeoutStrategy: 'retry' as const },
-  BROWSER_OPERATION: { maxDuration: 30000, warningThreshold: 20000, timeoutStrategy: 'retry' as const },
-  MCP_TOOL: { maxDuration: 45000, warningThreshold: 30000, timeoutStrategy: 'retry' as const }
+  QUICK: { maxDuration: 10000, warningThreshold: 60000, timeoutStrategy: 'abort' as const },
+  NORMAL: { maxDuration: 60000, warningThreshold: 60000, timeoutStrategy: 'retry' as const },
+  LONG: { maxDuration: 180000, warningThreshold: 180000, timeoutStrategy: 'continue' as const },
+  AI_REQUEST: { maxDuration: 120000, warningThreshold: 120000, timeoutStrategy: 'retry' as const },
+  BROWSER_OPERATION: { maxDuration: 60000, warningThreshold: 60000, timeoutStrategy: 'retry' as const },
+  MCP_TOOL: { maxDuration: 90000, warningThreshold: 90000, timeoutStrategy: 'retry' as const }
 }
