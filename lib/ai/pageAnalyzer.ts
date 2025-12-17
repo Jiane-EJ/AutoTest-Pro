@@ -211,7 +211,7 @@ ${JSON.stringify(elements.buttons, null, 2)}
 
   /**
    * 分析页面功能并生成测试步骤
-   * 改进：通过MCP获取真实DOM元素，AI只基于实际元素生成测试
+   * 改进：通过MCP获取完整上下文（元素 + 控制台 + 网络API响应）
    * @author Jiane
    */
   async analyzePageFunctionality(
@@ -223,57 +223,90 @@ ${JSON.stringify(elements.buttons, null, 2)}
     testSteps: any[]
     analysis: string
     elements?: PageElements
+    context?: any
     error?: string
   }> {
     try {
       logAI('开始分析页面功能...', 'qwen-vl-max', sessionId)
 
-      // 第一步：通过MCP获取页面真实元素
-      logMCP('[步骤1] 通过MCP获取页面可交互元素...', 'playwright', sessionId)
-      const elements = await this.getPageElements(sessionId)
+      // 第一步：通过MCP获取完整页面上下文（元素 + 控制台 + 网络）
+      logMCP('[步骤1] 通过MCP获取完整页面上下文...', 'playwright', sessionId)
+      const contextResult = await mcpManager.getFullPageContext(sessionId)
       
-      if (!elements) {
-        // 备用方案：使用正则提取
-        logAI('MCP获取失败，使用备用方案提取元素...', 'qwen-vl-max', sessionId)
-        const fallbackElements = this.extractElements(pageHtml)
-        return this.generateTestStepsFromElements(fallbackElements, requirement, sessionId)
+      if (!contextResult.success || !contextResult.data) {
+        // 备用方案：只获取元素
+        logAI('获取完整上下文失败，尝试只获取元素...', 'qwen-vl-max', sessionId)
+        const elements = await this.getPageElements(sessionId)
+        if (!elements) {
+          const fallbackElements = this.extractElements(pageHtml)
+          return this.generateTestStepsFromElements(fallbackElements, requirement, sessionId)
+        }
+        return this.generateTestStepsWithElements(elements, requirement, sessionId)
       }
 
-      logAI(`获取到元素: ${elements.inputs.length}输入框, ${elements.selects.length}下拉框, ${elements.buttons.length}按钮`, 'qwen-vl-max', sessionId)
+      const context = contextResult.data
+      const elements = context.elements as PageElements
+      
+      logAI(`获取上下文: ${context.summary.inputCount}输入框, ${context.summary.buttonCount}按钮, ${context.summary.apiCount}个API响应`, 'qwen-vl-max', sessionId)
 
-      // 第二步：AI分析并生成测试步骤
-      logAI('[步骤2] AI分析页面元素，生成测试步骤...', 'qwen-vl-max', sessionId)
+      // 第二步：AI分析完整上下文，生成测试步骤
+      logAI('[步骤2] AI分析页面上下文，生成测试步骤...', 'qwen-vl-max', sessionId)
+      
+      // 构建API响应信息（帮助AI理解数据结构）
+      let apiInfo = ''
+      if (context.apiResponses && context.apiResponses.length > 0) {
+        apiInfo = `
+### API接口响应 (共${context.apiResponses.length}个)
+${context.apiResponses.map((api: any) => `
+- ${api.method} ${api.url}
+  状态: ${api.status}
+  响应数据结构: ${JSON.stringify(api.responseBody, null, 2).substring(0, 500)}
+`).join('\n')}
+`
+      }
+
+      // 构建错误信息
+      let errorInfo = ''
+      if (context.consoleErrors && context.consoleErrors.length > 0) {
+        errorInfo = `
+### 控制台错误 (共${context.consoleErrors.length}个)
+${context.consoleErrors.slice(0, 5).map((e: any) => `- ${e.text}`).join('\n')}
+`
+      }
       
       const analysisPrompt = `
-你是业务功能测试专家。请根据【实际获取到的页面元素】生成正向业务测试步骤。
+你是业务功能测试专家。请根据【实际获取到的页面信息】生成正向业务测试步骤。
 
 ## 测试需求
 ${requirement}
 
 ## 页面信息
-- 页面标题: ${elements.pageTitle}
-- 页面URL: ${elements.pageUrl}
+- 页面标题: ${elements?.pageTitle || '未知'}
+- 页面URL: ${elements?.pageUrl || '未知'}
 
 ## 实际获取到的页面元素
 
-### 输入框 (共${elements.inputs.length}个)
-${JSON.stringify(elements.inputs, null, 2)}
+### 输入框 (共${elements?.inputs?.length || 0}个)
+${JSON.stringify(elements?.inputs || [], null, 2)}
 
-### 下拉框 (共${elements.selects.length}个)
-${JSON.stringify(elements.selects, null, 2)}
+### 下拉框 (共${elements?.selects?.length || 0}个)
+${JSON.stringify(elements?.selects || [], null, 2)}
 
-### 按钮 (共${elements.buttons.length}个)
-${JSON.stringify(elements.buttons, null, 2)}
+### 按钮 (共${elements?.buttons?.length || 0}个)
+${JSON.stringify(elements?.buttons || [], null, 2)}
 
-### 表格 (共${elements.tables.length}个)
-${JSON.stringify(elements.tables, null, 2)}
+### 表格 (共${elements?.tables?.length || 0}个)
+${JSON.stringify(elements?.tables || [], null, 2)}
+${apiInfo}
+${errorInfo}
 
 ## 严格规则
 1. 【禁止猜测】只能使用上面列出的元素，不能凭空创造不存在的元素
 2. 【禁止猜测】selector必须使用元素中提供的selector，不能自己编造
 3. 只生成正向业务流程测试，模拟用户正常操作
 4. 有多少可操作元素就生成多少步骤，不要人为限制数量
-5. 不生成异常测试、边界测试、性能测试等
+5. 如果有API响应数据，可以参考数据结构来生成合理的测试数据
+6. 不生成异常测试、边界测试、性能测试等
 
 ## 输出格式 (严格JSON)
 {
@@ -285,7 +318,7 @@ ${JSON.stringify(elements.tables, null, 2)}
       "description": "操作描述"
     }
   ],
-  "analysis": "基于实际元素的页面功能分析"
+  "analysis": "基于实际元素和API的页面功能分析"
 }
 
 action类型: fill(填写输入框)、click(点击按钮)、select(选择下拉框)、verify(验证结果)
@@ -297,7 +330,7 @@ action类型: fill(填写输入框)、click(点击按钮)、select(选择下拉�
           messages: [
             {
               role: 'system',
-              content: '你是业务功能测试专家。严格规则：1.只能使用提供的元素，禁止猜测或创造不存在的元素 2.selector必须来自元素数据 3.只生成正向业务测试。输出有效JSON。'
+              content: '你是业务功能测试专家。严格规则：1.只能使用提供的元素，禁止猜测 2.selector必须来自元素数据 3.可参考API响应生成测试数据 4.只生成正向业务测试。输出有效JSON。'
             },
             {
               role: 'user',
@@ -305,7 +338,7 @@ action类型: fill(填写输入框)、click(点击按钮)、select(选择下拉�
             }
           ],
           temperature: 0.2,
-          max_tokens: 2000
+          max_tokens: 2500
         },
         sessionId
       )
@@ -328,7 +361,8 @@ action类型: fill(填写输入框)、click(点击按钮)、select(选择下拉�
         success: true,
         testSteps,
         analysis: aiAnalysis,
-        elements
+        elements,
+        context
       }
     } catch (error) {
       const errorMsg = error instanceof Error ? error.message : String(error)
@@ -340,6 +374,71 @@ action类型: fill(填写输入框)、click(点击按钮)、select(选择下拉�
         error: errorMsg
       }
     }
+  }
+
+  /**
+   * 只使用元素生成测试步骤（当无法获取完整上下文时）
+   * @author Jiane
+   */
+  private async generateTestStepsWithElements(
+    elements: PageElements,
+    requirement: string,
+    sessionId?: string
+  ): Promise<{
+    success: boolean
+    testSteps: any[]
+    analysis: string
+    elements?: PageElements
+    error?: string
+  }> {
+    const analysisPrompt = `
+你是业务功能测试专家。请根据【实际获取到的页面元素】生成正向业务测试步骤。
+
+## 测试需求
+${requirement}
+
+## 页面元素
+输入框: ${JSON.stringify(elements.inputs, null, 2)}
+下拉框: ${JSON.stringify(elements.selects, null, 2)}
+按钮: ${JSON.stringify(elements.buttons, null, 2)}
+
+## 严格规则
+1. 只能使用上面列出的元素，禁止猜测
+2. selector必须使用元素中提供的selector
+3. 只生成正向业务流程测试
+
+## 输出格式
+{
+  "testSteps": [{"action": "fill/click/select", "selector": "...", "value": "...", "description": "..."}],
+  "analysis": "页面功能分析"
+}
+`
+
+    const aiAnalysis = await qwenClient.chatCompletion(
+      {
+        model: 'qwen-vl-max',
+        messages: [
+          { role: 'system', content: '业务测试专家，只使用提供的元素，禁止猜测。输出JSON。' },
+          { role: 'user', content: analysisPrompt }
+        ],
+        temperature: 0.2,
+        max_tokens: 2000
+      },
+      sessionId
+    )
+
+    let testSteps: any[] = []
+    try {
+      const jsonMatch = aiAnalysis.match(/\{[\s\S]*\}/)
+      if (jsonMatch) {
+        const parsed = JSON.parse(jsonMatch[0])
+        testSteps = parsed.testSteps || []
+      }
+    } catch (e) {
+      // ignore
+    }
+
+    return { success: true, testSteps, analysis: aiAnalysis, elements }
   }
 
   /**
