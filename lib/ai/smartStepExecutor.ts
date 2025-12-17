@@ -418,18 +418,36 @@ export class SmartStepExecutor {
       // 步骤3：根据分析结果生成测试步骤
       logAI(`[步骤3] 生成测试步骤...`, 'qwen-vl-max', sessionId)
       const testStepsPrompt = `
-基于以下页面分析结果，生成具体的测试步骤：
+基于以下页面分析结果，生成【正向业务流程】的测试步骤：
 
 ${analysisResult.analysis}
 
-请生成JSON格式的测试步骤：
+## 生成规则
+1. 只生成正向业务操作步骤，模拟真实用户的正常使用流程
+2. 每个步骤必须是可执行的MCP操作（fill填写、click点击、select选择、verify验证）
+3. 必须使用分析结果中提供的selector
+4. 不要生成异常测试、边界测试、性能测试等非业务测试
+
+## 输出格式
 {
   "steps": [
     {
-      "action": "click|fill|navigate|verify",
-      "selector": "...",
-      "value": "...",
-      "description": "..."
+      "action": "fill",
+      "selector": "具体的CSS选择器",
+      "value": "合理的测试数据",
+      "description": "操作描述"
+    },
+    {
+      "action": "click",
+      "selector": "按钮选择器",
+      "value": "",
+      "description": "点击提交/保存/查询等按钮"
+    },
+    {
+      "action": "verify",
+      "selector": "",
+      "value": "",
+      "description": "验证操作结果"
     }
   ]
 }
@@ -441,15 +459,15 @@ ${analysisResult.analysis}
           messages: [
             {
               role: 'system',
-              content: '你是一个专业的自动化测试专家。请生成具体的测试步骤。'
+              content: '你是业务功能测试专家，只生成正向业务流程的测试步骤。输出必须是有效的JSON格式。'
             },
             {
               role: 'user',
               content: testStepsPrompt
             }
           ],
-          temperature: 0.4,
-          max_tokens: 1000
+          temperature: 0.3,
+          max_tokens: 1200
         },
         sessionId
       )

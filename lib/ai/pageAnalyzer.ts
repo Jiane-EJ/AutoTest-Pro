@@ -275,6 +275,7 @@ ${JSON.stringify(elements.buttons, null, 2)}
 
   /**
    * 分析页面功能并生成测试步骤
+   * @author Jiane
    */
   async analyzePageFunctionality(
     pageHtml: string,
@@ -292,25 +293,51 @@ ${JSON.stringify(elements.buttons, null, 2)}
       const elements = this.extractElements(pageHtml)
 
       const analysisPrompt = `
-请分析以下页面的功能，并生成测试步骤：
+你是一个业务功能测试专家，请根据页面元素生成【正向业务流程】的测试步骤。
 
-测试需求：${requirement}
+## 测试需求
+${requirement}
 
-页面输入框：
+## 页面元素
+输入框：
 ${JSON.stringify(elements.inputs, null, 2)}
 
-页面按钮：
+按钮：
 ${JSON.stringify(elements.buttons, null, 2)}
 
-请生成详细的测试步骤，并用JSON格式返回：
+## 生成规则
+1. 只生成【正向业务操作】的测试步骤，模拟真实用户的正常使用流程
+2. 每个步骤必须是可执行的具体操作（填写、点击、选择等）
+3. 步骤中必须包含具体的选择器(selector)和测试数据(value)
+4. 不要生成以下类型的测试：
+   - 异常场景测试（空值、特殊字符、超长输入等）
+   - 性能测试（网络延迟、加载状态等）
+   - 无障碍测试（Tab键、键盘导航等）
+   - 兼容性测试（不同浏览器、屏幕尺寸等）
+   - 安全测试（XSS、SQL注入等）
+   - 边界测试（重复提交、刷新行为等）
+
+## 输出格式
+请用JSON格式返回，每个步骤包含action、selector、value、description：
 {
   "testSteps": [
-    "步骤1: ...",
-    "步骤2: ...",
-    ...
+    {
+      "action": "fill",
+      "selector": "#username",
+      "value": "测试数据",
+      "description": "在用户名输入框填写测试数据"
+    },
+    {
+      "action": "click",
+      "selector": "button[type=submit]",
+      "value": "",
+      "description": "点击提交按钮"
+    }
   ],
-  "analysis": "页面功能分析..."
+  "analysis": "简要说明页面的核心业务功能"
 }
+
+action类型：fill(填写)、click(点击)、select(下拉选择)、verify(验证结果)
 `
 
       const aiAnalysis = await qwenClient.chatCompletion(
@@ -319,15 +346,15 @@ ${JSON.stringify(elements.buttons, null, 2)}
           messages: [
             {
               role: 'system',
-              content: '你是一个专业的自动化测试专家。请分析页面功能并生成测试步骤。'
+              content: '你是业务功能测试专家，只生成正向业务流程的测试步骤，不生成异常、边界、性能等非业务测试。输出必须是有效的JSON格式。'
             },
             {
               role: 'user',
               content: analysisPrompt
             }
           ],
-          temperature: 0.4,
-          max_tokens: 1200
+          temperature: 0.3,
+          max_tokens: 1500
         },
         sessionId
       )
