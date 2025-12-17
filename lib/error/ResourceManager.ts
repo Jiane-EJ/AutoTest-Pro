@@ -35,7 +35,7 @@ export class ResourceManager {
 
     // 检查资源限制
     if (currentCount >= limit) {
-      logError(`资源限制超限: ${resourceType} (${currentCount}/${limit})`, new Error('Resource limit exceeded'))
+      logError(`资源限制超限: ${resourceType} (${currentCount}/${limit})`, new Error('Resource limit exceeded'), 'ResourceManager-registerResource')
       return false
     }
 
@@ -44,7 +44,7 @@ export class ResourceManager {
       lastUsed: new Date()
     })
 
-    logSystem(`资源已注册: ${resource.type} (${resource.id})`)
+    logSystem(`资源已注册: ${resource.type} (${resource.id})`, 'ResourceManager-registerResource')
     return true
   }
 
@@ -52,7 +52,7 @@ export class ResourceManager {
   useResource(resourceId: string): boolean {
     const resource = this.resources.get(resourceId)
     if (!resource) {
-      logError(`尝试使用不存在的资源: ${resourceId}`, new Error('Resource not found'))
+      logError(`尝试使用不存在的资源: ${resourceId}`, new Error('Resource not found'), 'ResourceManager-useResource')
       return false
     }
 
@@ -65,7 +65,7 @@ export class ResourceManager {
   async releaseResource(resourceId: string, cleanupFn?: () => Promise<void>): Promise<boolean> {
     const resource = this.resources.get(resourceId)
     if (!resource) {
-      logSystem(`尝试释放不存在的资源: ${resourceId}`)
+      logSystem(`尝试释放不存在的资源: ${resourceId}`, 'ResourceManager-releaseResource')
       return false
     }
 
@@ -76,10 +76,10 @@ export class ResourceManager {
       }
 
       this.resources.delete(resourceId)
-      logSystem(`资源已释放: ${resource.type} (${resourceId})`)
+      logSystem(`资源已释放: ${resource.type} (${resourceId})`, 'ResourceManager-releaseResource')
       return true
     } catch (error) {
-      logError(`释放资源失败: ${resourceId}`, error as Error)
+      logError(`释放资源失败: ${resourceId}`, error as Error, 'ResourceManager-releaseResource')
       return false
     }
   }
@@ -125,7 +125,7 @@ export class ResourceManager {
     }
 
     if (cleanedCount > 0) {
-      logSystem(`清理了 ${cleanedCount} 个闲置资源`)
+      logSystem(`清理了 ${cleanedCount} 个闲置资源`, 'ResourceManager-cleanupUnusedResources')
     }
 
     return cleanedCount
@@ -134,7 +134,7 @@ export class ResourceManager {
   // 设置资源限制
   setResourceLimit(type: ResourceInfo['type'], limit: number): void {
     this.resourceLimits.set(type, limit)
-    logSystem(`资源限制已更新: ${type} = ${limit}`)
+    logSystem(`资源限制已更新: ${type} = ${limit}`, 'ResourceManager-setResourceLimit')
   }
 
   // 获取资源限制
@@ -161,7 +161,7 @@ export class ResourceManager {
     
     for (const [type, { count, limit, percentage }] of Object.entries(stats)) {
       if (percentage >= 90) {
-        logError(`资源使用率过高: ${type} (${percentage}%)`, new Error('Resource usage too high'))
+        logError(`资源使用率过高: ${type} (${percentage}%)`, new Error('Resource usage too high'), 'ResourceManager-isResourceHealthy')
         return false
       }
     }
@@ -177,7 +177,7 @@ export class ResourceManager {
     await Promise.allSettled(cleanupPromises)
     
     this.resources.clear()
-    logSystem('所有资源已清理')
+    logSystem('所有资源已清理', 'ResourceManager-cleanupAllResources')
   }
 
   // 创建浏览器资源

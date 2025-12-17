@@ -25,12 +25,12 @@ export class MCPManager {
   }
 
   private initializeMCPs() {
-    logMCP(`MCPManager已初始化，准备使用真实Playwright浏览器`, undefined)
+    logMCP(`MCPManager已初始化，准备使用真实Playwright浏览器`, 'playwright')
   }
 
   private async ensureBrowser() {
     if (!this.browser) {
-      logMCP(`启动Playwright浏览器...`, undefined)
+      logMCP(`启动Playwright浏览器...`, 'playwright')
       this.browser = await chromium.launch({ headless: false })
       this.page = await this.browser.newPage()
     }
@@ -39,13 +39,14 @@ export class MCPManager {
 
   // Sequential Thinking MCP - 使用AI进行深度思考
   async callSequentialThinking(thoughts: string[], sessionId?: string): Promise<MCPResult> {
-    logMCP(`调用sequential-thinking工具: ${JSON.stringify(thoughts)}`, sessionId)
+    const tool = 'sequential-thinking'
+    logMCP(`调用: ${JSON.stringify(thoughts)}`, tool, sessionId)
     
     try {
       // 这里可以集成真实的sequential-thinking MCP
       // 目前返回思考过程的总结
       const thoughtSummary = thoughts.join(' -> ')
-      logMCP(`sequential-thinking响应: 完成思考过程 - ${thoughtSummary}`, sessionId)
+      logMCP(`响应: 完成思考过程 - ${thoughtSummary}`, tool, sessionId)
       
       return {
         success: true,
@@ -58,7 +59,7 @@ export class MCPManager {
       
     } catch (error) {
       const errorMsg = error instanceof Error ? error.message : String(error)
-      logError(`sequential-thinking调用失败: ${errorMsg}`, error, sessionId)
+      logError(`sequential-thinking调用失败: ${errorMsg}`, error, 'mcpManager-callSequentialThinking', sessionId)
       return {
         success: false,
         error: errorMsg
@@ -68,12 +69,13 @@ export class MCPManager {
 
   // Context7 MCP - 获取文档和上下文信息
   async callContext7(query: string, sessionId?: string): Promise<MCPResult> {
-    logMCP(`调用context7工具: ${query}`, sessionId)
+    const tool = 'context7'
+    logMCP(`调用: ${query}`, tool, sessionId)
     
     try {
       // 这里可以集成真实的context7 MCP来查询文档
       // 目前返回查询结果
-      logMCP(`context7响应: 查询完成 - ${query}`, sessionId)
+      logMCP(`响应: 查询完成 - ${query}`, tool, sessionId)
       
       return {
         success: true,
@@ -87,7 +89,7 @@ export class MCPManager {
       
     } catch (error) {
       const errorMsg = error instanceof Error ? error.message : String(error)
-      logError(`context7调用失败: ${errorMsg}`, error, sessionId)
+      logError(`context7调用失败: ${errorMsg}`, error, 'mcpManager-callContext7', sessionId)
       return {
         success: false,
         error: errorMsg
@@ -97,7 +99,8 @@ export class MCPManager {
 
   // Playwright MCP - 真实浏览器操作
   async callPlaywright(action: string, params: any, sessionId?: string): Promise<MCPResult> {
-    logMCP(`调用playwright工具: ${action}(${JSON.stringify(params)})`, sessionId)
+    const tool = 'playwright'
+    logMCP(`调用: ${action}(${JSON.stringify(params)})`, tool, sessionId)
     
     try {
       const { page } = await this.ensureBrowser()
@@ -123,7 +126,7 @@ export class MCPManager {
       
     } catch (error) {
       const errorMsg = error instanceof Error ? error.message : String(error)
-      logError(`playwright调用失败: ${errorMsg}`, error, sessionId)
+      logError(`playwright调用失败: ${errorMsg}`, error, 'mcpManager-callPlaywright', sessionId)
       return {
         success: false,
         error: errorMsg
@@ -132,8 +135,9 @@ export class MCPManager {
   }
 
   private async realNavigate(page: Page, url: string, sessionId?: string): Promise<MCPResult> {
+    const tool = 'playwright'
     try {
-      logMCP(`浏览器导航到: ${url}`, sessionId)
+      logMCP(`浏览器导航到: ${url}`, tool, sessionId)
       
       // 使用更宽松的等待条件
       await page.goto(url, { waitUntil: 'domcontentloaded' })
@@ -141,7 +145,7 @@ export class MCPManager {
       // 额外等待一下，确保动态内容加载
       await page.waitForTimeout(2000)
       
-      logMCP(`导航成功: ${url}`, sessionId)
+      logMCP(`导航成功: ${url}`, tool, sessionId)
       
       return {
         success: true,
@@ -157,8 +161,9 @@ export class MCPManager {
   }
 
   private async realFill(page: Page, selector: string, value: string, sessionId?: string): Promise<MCPResult> {
+    const tool = 'playwright'
     try {
-      logMCP(`输入文本到元素 [${selector}]: ${value}`, sessionId)
+      logMCP(`输入文本到元素 [${selector}]: ${value}`, tool, sessionId)
       
       let targetSelector = selector
       
@@ -166,7 +171,7 @@ export class MCPManager {
       try {
         await page.waitForSelector(selector, { timeout: 5000 })
       } catch (waitError) {
-        logMCP(`元素 [${selector}] 未找到，尝试使用替代选择器...`, sessionId)
+        logMCP(`元素 [${selector}] 未找到，尝试使用替代选择器...`, tool, sessionId)
         
         // 尝试替代选择器
         const alternativeSelectors = [
@@ -181,7 +186,7 @@ export class MCPManager {
         for (const altSelector of alternativeSelectors) {
           try {
             await page.waitForSelector(altSelector, { timeout: 2000 })
-            logMCP(`找到替代元素: ${altSelector}`, sessionId)
+            logMCP(`找到替代元素: ${altSelector}`, tool, sessionId)
             targetSelector = altSelector
             found = true
             break
@@ -198,7 +203,7 @@ export class MCPManager {
       // 使用模拟人类输入的方式（避免触发滑块验证）
       await this.humanLikeType(page, targetSelector, value, sessionId)
       
-      logMCP(`输入成功: [${targetSelector}]`, sessionId)
+      logMCP(`输入成功: [${targetSelector}]`, tool, sessionId)
       
       return {
         success: true,
@@ -220,7 +225,8 @@ export class MCPManager {
    * - 逐字输入，每个字符之间有随机延迟
    */
   private async humanLikeType(page: Page, selector: string, text: string, sessionId?: string): Promise<void> {
-    logMCP(`[人类模拟] 开始模拟人类输入: ${selector}`, sessionId)
+    const tool = 'playwright'
+    logMCP(`[人类模拟] 开始模拟人类输入: ${selector}`, tool, sessionId)
     
     // 1. 点击输入框获取焦点
     await page.click(selector)
@@ -241,7 +247,7 @@ export class MCPManager {
       }
     }
     
-    logMCP(`[人类模拟] 输入完成: ${selector}`, sessionId)
+    logMCP(`[人类模拟] 输入完成: ${selector}`, tool, sessionId)
   }
 
   /**
@@ -266,7 +272,8 @@ export class MCPManager {
    * - 然后点击
    */
   private async humanLikeClickBySelector(page: Page, selector: string, sessionId?: string): Promise<void> {
-    logMCP(`[人类模拟] 开始模拟人类点击: ${selector}`, sessionId)
+    const tool = 'playwright'
+    logMCP(`[人类模拟] 开始模拟人类点击: ${selector}`, tool, sessionId)
     
     // 获取元素位置
     const element = page.locator(selector)
@@ -288,14 +295,15 @@ export class MCPManager {
       await element.click()
     }
     
-    logMCP(`[人类模拟] 点击完成: ${selector}`, sessionId)
+    logMCP(`[人类模拟] 点击完成: ${selector}`, tool, sessionId)
   }
 
   /**
    * 模拟人类点击行为（通过 Locator）
    */
   private async humanLikeClick(page: Page, element: any, sessionId?: string): Promise<void> {
-    logMCP(`[人类模拟] 开始模拟人类点击元素`, sessionId)
+    const tool = 'playwright'
+    logMCP(`[人类模拟] 开始模拟人类点击元素`, tool, sessionId)
     
     const box = await element.boundingBox()
     
@@ -310,20 +318,21 @@ export class MCPManager {
       await element.click()
     }
     
-    logMCP(`[人类模拟] 点击完成`, sessionId)
+    logMCP(`[人类模拟] 点击完成`, tool, sessionId)
   }
 
   private async realClick(page: Page, selector: string, sessionId?: string): Promise<MCPResult> {
+    const tool = 'playwright'
     try {
-      logMCP(`点击元素: ${selector}`, sessionId)
+      logMCP(`点击元素: ${selector}`, tool, sessionId)
       
       // 处理文本选择器 (text="xxx")
       if (selector.startsWith('text=')) {
         const text = selector.replace('text=', '').replace(/"/g, '')
-        logMCP(`使用文本选择器查找: ${text}`, sessionId)
+        logMCP(`使用文本选择器查找: ${text}`, tool, sessionId)
         const element = page.getByText(text, { exact: false })
         await this.humanLikeClick(page, element, sessionId)
-        logMCP(`文本元素点击成功: ${text}`, sessionId)
+        logMCP(`文本元素点击成功: ${text}`, tool, sessionId)
         return {
           success: true,
           data: { status: 'completed', selector }
@@ -334,9 +343,9 @@ export class MCPManager {
       try {
         await page.waitForSelector(selector, { timeout: 5000 })
         await this.humanLikeClickBySelector(page, selector, sessionId)
-        logMCP(`点击成功: ${selector}`, sessionId)
+        logMCP(`点击成功: ${selector}`, tool, sessionId)
       } catch (waitError) {
-        logMCP(`元素 [${selector}] 未找到，尝试使用替代选择器...`, sessionId)
+        logMCP(`元素 [${selector}] 未找到，尝试使用替代选择器...`, tool, sessionId)
         
         // 尝试替代选择器（包括 layui 的 div 按钮）
         const alternativeSelectors = [
@@ -357,11 +366,11 @@ export class MCPManager {
         for (const altSelector of alternativeSelectors) {
           try {
             await page.waitForSelector(altSelector, { timeout: 2000 })
-            logMCP(`找到替代元素: ${altSelector}`, sessionId)
+            logMCP(`找到替代元素: ${altSelector}`, tool, sessionId)
             // 使用人类模拟点击
             await this.humanLikeClickBySelector(page, altSelector, sessionId)
             found = true
-            logMCP(`点击成功: ${altSelector}`, sessionId)
+            logMCP(`点击成功: ${altSelector}`, tool, sessionId)
             break
           } catch (e) {
             // 继续尝试下一个选择器
@@ -383,12 +392,12 @@ export class MCPManager {
           
           for (const text of loginTexts) {
             try {
-              logMCP(`尝试通过文本"${text}"查找按钮...`, sessionId)
+              logMCP(`尝试通过文本"${text}"查找按钮...`, tool, sessionId)
               const loginBtn = page.getByText(text, { exact: false })
               // 使用人类模拟点击
               await this.humanLikeClick(page, loginBtn.first(), sessionId)
               found = true
-              logMCP(`通过文本"${text}"点击成功`, sessionId)
+              logMCP(`通过文本"${text}"点击成功`, tool, sessionId)
               break
             } catch (e) {
               // 继续尝试下一个文本
@@ -417,10 +426,11 @@ export class MCPManager {
   }
 
   private async realWaitForElement(page: Page, selector: string, sessionId?: string): Promise<MCPResult> {
+    const tool = 'playwright'
     try {
-      logMCP(`等待元素出现: ${selector}`, sessionId)
+      logMCP(`等待元素出现: ${selector}`, tool, sessionId)
       await page.waitForSelector(selector, { timeout: 10000 })
-      logMCP(`元素已出现: ${selector}`, sessionId)
+      logMCP(`元素已出现: ${selector}`, tool, sessionId)
       
       return {
         success: true,
@@ -435,10 +445,11 @@ export class MCPManager {
   }
 
   private async realGetVisibleHtml(page: Page, sessionId?: string): Promise<MCPResult> {
+    const tool = 'playwright'
     try {
-      logMCP(`获取页面HTML内容...`, sessionId)
+      logMCP(`获取页面HTML内容...`, tool, sessionId)
       const html = await page.content()
-      logMCP(`页面HTML已获取，长度: ${html.length}`, sessionId)
+      logMCP(`页面HTML已获取，长度: ${html.length}`, tool, sessionId)
       
       return {
         success: true,
@@ -450,10 +461,11 @@ export class MCPManager {
   }
 
   private async realGetVisibleText(page: Page, sessionId?: string): Promise<MCPResult> {
+    const tool = 'playwright'
     try {
-      logMCP(`获取页面文本内容...`, sessionId)
+      logMCP(`获取页面文本内容...`, tool, sessionId)
       const text = await page.evaluate(() => document.body.innerText)
-      logMCP(`页面文本已获取，长度: ${text.length}`, sessionId)
+      logMCP(`页面文本已获取，长度: ${text.length}`, tool, sessionId)
       
       return {
         success: true,
@@ -465,8 +477,9 @@ export class MCPManager {
   }
 
   private async realEvaluate(page: Page, script: string, sessionId?: string): Promise<MCPResult> {
+    const tool = 'playwright'
     try {
-      logMCP(`执行JavaScript脚本...`, sessionId)
+      logMCP(`执行JavaScript脚本...`, tool, sessionId)
       // 使用 Function 构造函数而不是 eval，更安全
       const result = await page.evaluate((scriptContent: string) => {
         // eslint-disable-next-line no-new-func
@@ -478,7 +491,7 @@ export class MCPManager {
       const resultStr = result !== undefined && result !== null 
         ? JSON.stringify(result) 
         : String(result)
-      logMCP(`JavaScript执行完成，结果: ${resultStr}`, sessionId)
+      logMCP(`JavaScript执行完成，结果: ${resultStr}`, tool, sessionId)
       
       return {
         success: true,
@@ -491,6 +504,7 @@ export class MCPManager {
 
   // 调试方法：获取页面上的所有输入框和按钮
   async debugPageElements(sessionId?: string): Promise<MCPResult> {
+    const tool = 'playwright'
     try {
       if (!this.page) {
         return { success: false, error: '浏览器未初始化' }
@@ -515,7 +529,7 @@ export class MCPManager {
         return { inputs, buttons }
       })
 
-      logMCP(`页面元素调试: ${JSON.stringify(elements)}`, sessionId)
+      logMCP(`页面元素调试: ${JSON.stringify(elements)}`, tool, sessionId)
       return { success: true, data: elements }
     } catch (error) {
       return { success: false, error: error instanceof Error ? error.message : String(error) }
@@ -524,17 +538,18 @@ export class MCPManager {
 
   // 清理所有MCP进程和浏览器
   async cleanup() {
+    const tool = 'playwright'
     try {
       if (this.page) {
         // Jiane==
         // await this.page.close()
-        logMCP(`已关闭页面`, undefined)
+        logMCP(`已关闭页面`, tool)
       }
       
       if (this.browser) {
         // Jiane==
         // await this.browser.close()
-        logMCP(`已关闭浏览器`, undefined)
+        logMCP(`已关闭浏览器`, tool)
       }
       
       this.processes.forEach((process, name) => {
@@ -542,14 +557,14 @@ export class MCPManager {
           if (typeof process.kill === 'function') {
             process.kill()
           }
-          logMCP(`已停止MCP服务器: ${name}`, undefined)
+          logMCP(`已停止MCP服务器: ${name}`, tool)
         } catch (error) {
-          logError(`停止MCP服务器 ${name} 失败`, error, undefined)
+          logError(`停止MCP服务器 ${name} 失败`, error, 'mcpManager-cleanup')
         }
       })
       this.processes.clear()
     } catch (error) {
-      logError(`清理MCP资源失败`, error, undefined)
+      logError(`清理MCP资源失败`, error, 'mcpManager-cleanup')
     }
   }
 }

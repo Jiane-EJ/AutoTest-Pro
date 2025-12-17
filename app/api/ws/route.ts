@@ -23,7 +23,7 @@ function getWebSocketServer() {
     
     wss.on('connection', (ws: ExtendedWebSocket, req) => {
       console.log('WebSocket client connected')
-      logSystem('WebSocket 客户端已连接')
+      logSystem('WebSocket 客户端已连接', 'ws/route-connection')
 
       ws.on('message', (message: string) => {
         try {
@@ -51,12 +51,12 @@ function getWebSocketServer() {
 
       ws.on('close', () => {
         console.log('WebSocket client disconnected')
-        logSystem('WebSocket 客户端已断开')
+        logSystem('WebSocket 客户端已断开', 'ws/route-close')
       })
 
       ws.on('error', (error) => {
         console.error('WebSocket error:', error)
-        logSystem(`WebSocket 错误: ${error.message}`)
+        logSystem(`WebSocket 错误: ${error.message}`, 'ws/route-error')
       })
     })
 

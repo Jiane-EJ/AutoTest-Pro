@@ -188,7 +188,7 @@ export class PageAnalyzer {
 
       return { inputs, buttons, forms }
     } catch (error) {
-      logError('页面元素提取失败', error as Error)
+      logError('页面元素提取失败', error as Error, 'pageAnalyzer-extractElements')
       return { inputs: [], buttons: [], forms: [] }
     }
   }
@@ -201,7 +201,7 @@ export class PageAnalyzer {
     sessionId?: string
   ): Promise<PageAnalysisResult> {
     try {
-      logAI('开始分析登录页面结构...', sessionId)
+      logAI('开始分析登录页面结构...', 'qwen-vl-max', sessionId)
 
       // 第一步：提取页面元素
       const elements = this.extractElements(pageHtml)
@@ -250,7 +250,7 @@ ${JSON.stringify(elements.buttons, null, 2)}
         sessionId
       )
 
-      logAI(`页面分析完成: ${aiAnalysis.substring(0, 200)}...`, sessionId)
+      logAI(`页面分析完成: ${aiAnalysis.substring(0, 200)}...`, 'qwen-vl-max', sessionId)
 
       return {
         success: true,
@@ -261,7 +261,7 @@ ${JSON.stringify(elements.buttons, null, 2)}
       }
     } catch (error) {
       const errorMsg = error instanceof Error ? error.message : String(error)
-      logError('页面分析失败', error as Error, sessionId)
+      logError('页面分析失败', error as Error, 'pageAnalyzer-analyzePageForLogin', sessionId)
       return {
         success: false,
         inputs: [],
@@ -287,7 +287,7 @@ ${JSON.stringify(elements.buttons, null, 2)}
     error?: string
   }> {
     try {
-      logAI('开始分析页面功能...', sessionId)
+      logAI('开始分析页面功能...', 'qwen-vl-max', sessionId)
 
       const elements = this.extractElements(pageHtml)
 
@@ -332,7 +332,7 @@ ${JSON.stringify(elements.buttons, null, 2)}
         sessionId
       )
 
-      logAI(`功能分析完成: ${aiAnalysis.substring(0, 200)}...`, sessionId)
+      logAI(`功能分析完成: ${aiAnalysis.substring(0, 200)}...`, 'qwen-vl-max', sessionId)
 
       return {
         success: true,
@@ -341,7 +341,7 @@ ${JSON.stringify(elements.buttons, null, 2)}
       }
     } catch (error) {
       const errorMsg = error instanceof Error ? error.message : String(error)
-      logError('功能分析失败', error as Error, sessionId)
+      logError('功能分析失败', error as Error, 'pageAnalyzer-analyzePageFunctionality', sessionId)
       return {
         success: false,
         testSteps: [],
@@ -365,7 +365,7 @@ ${JSON.stringify(elements.buttons, null, 2)}
     reason: string
   }> {
     try {
-      logAI(`验证操作成功: ${operationType}`, sessionId)
+      logAI(`验证操作成功: ${operationType}`, 'qwen-vl-max', sessionId)
 
       const verifyPrompt = `
 请比较以下两个页面HTML，判断操作"${operationType}"是否成功执行：
@@ -410,7 +410,7 @@ ${JSON.stringify(elements.buttons, null, 2)}
       }
     } catch (error) {
       const errorMsg = error instanceof Error ? error.message : String(error)
-      logError('操作验证失败', error as Error, sessionId)
+      logError('操作验证失败', error as Error, 'pageAnalyzer-verifyOperationSuccess', sessionId)
       return {
         success: false,
         verified: false,

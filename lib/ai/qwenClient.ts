@@ -35,13 +35,14 @@ export class QwenClient {
     if (!this.apiKey) {
       throw new Error('QWEN_API_KEY 环境变量未配置')
     }
-    logAI(`Qwen客户端已初始化，API URL: ${this.apiUrl}`, undefined)
+    logAI(`Qwen客户端已初始化，API URL: ${this.apiUrl}`, 'qwenClient-constructor')
   }
 
   async chatCompletion(request: QwenRequest, sessionId?: string): Promise<string> {
+    const modelName = request.model
     try {
       const userMessage = request.messages[request.messages.length - 1]?.content || ''
-      logAI(`调用Qwen API: ${userMessage}`, sessionId)
+      logAI(`输入: ${userMessage}`, modelName, sessionId)
 
       const response = await fetch(`${this.apiUrl}/chat/completions`, {
         method: 'POST',
@@ -70,19 +71,20 @@ export class QwenClient {
         throw new Error('Qwen API 返回空响应')
       }
 
-      logAI(`Qwen响应: ${result.substring(0, 200)}...`, sessionId)
+      logAI(`响应: ${result.substring(0, 200)}...`, modelName, sessionId)
       return result
 
     } catch (error) {
       const errorMsg = error instanceof Error ? error.message : String(error)
-      logError(`Qwen API调用失败: ${errorMsg}`, error instanceof Error ? error : new Error(errorMsg), sessionId)
+      logError(`Qwen API调用失败: ${errorMsg}`, error instanceof Error ? error : new Error(errorMsg), 'qwenClient-chatCompletion', sessionId)
       throw error
     }
   }
 
   async analyzeTestStep(stepTitle: string, context: string, sessionId?: string): Promise<string> {
+    const model = 'qwen-vl-max'
     const request: QwenRequest = {
-      model: 'qwen-vl-max',
+      model,
       messages: [
         {
           role: 'system',
@@ -101,8 +103,9 @@ export class QwenClient {
   }
 
   async generateTestCase(requirement: string, pageInfo: string, sessionId?: string): Promise<string> {
+    const model = 'qwen-vl-max'
     const request: QwenRequest = {
-      model: 'qwen-vl-max',
+      model,
       messages: [
         {
           role: 'system',
@@ -121,8 +124,9 @@ export class QwenClient {
   }
 
   async analyzeLoginStatus(pageContent: string, sessionId?: string): Promise<{ success: boolean; data: any }> {
+    const model = 'qwen-vl-max'
     const request: QwenRequest = {
-      model: 'qwen-vl-max',
+      model,
       messages: [
         {
           role: 'system',
@@ -139,7 +143,7 @@ export class QwenClient {
 
     try {
       const response = await this.chatCompletion(request, sessionId)
-      logAI(`登录状态分析完成: ${response.substring(0, 150)}...`, sessionId)
+      logAI(`登录状态分析完成: ${response.substring(0, 150)}...`, model, sessionId)
       
       return {
         success: true,
@@ -148,14 +152,15 @@ export class QwenClient {
         }
       }
     } catch (error) {
-      logError(`登录状态分析失败`, error instanceof Error ? error : new Error(String(error)), sessionId)
+      logError(`登录状态分析失败`, error instanceof Error ? error : new Error(String(error)), 'qwenClient-analyzeLoginStatus', sessionId)
       throw error
     }
   }
 
   async analyzePageFunctionality(pageContent: string, requirement: string, sessionId?: string): Promise<string> {
+    const model = 'qwen-vl-max'
     const request: QwenRequest = {
-      model: 'qwen-vl-max',
+      model,
       messages: [
         {
           role: 'system',

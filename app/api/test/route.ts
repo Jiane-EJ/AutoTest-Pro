@@ -18,11 +18,11 @@ export async function POST(request: NextRequest) {
     // 创建测试会话
     const session = await sessionManager.createSession(config)
     
-    logSystem(`测试会话已启动: ${session.sessionId}`, session.sessionId)
+    logSystem(`测试会话已启动: ${session.sessionId}`, 'test/route-POST', session.sessionId)
     
     // 启动AI测试流程（异步）
     runAITest(session.sessionId, config).catch(error => {
-      logSystem(`测试执行失败: ${error.message}`, session.sessionId)
+      logSystem(`测试执行失败: ${error.message}`, 'test/route-POST', session.sessionId)
       sessionManager.updateSessionStatus(session.sessionId, 'error')
     })
     

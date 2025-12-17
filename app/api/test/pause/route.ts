@@ -22,7 +22,7 @@ export async function POST(request: NextRequest) {
     }
 
     await sessionManager.updateSessionStatus(sessionId, 'paused')
-    logSystem(`测试已暂停: ${sessionId}`, sessionId)
+    logSystem(`测试已暂停: ${sessionId}`, 'test/pause/route-POST', sessionId)
     
     return NextResponse.json({
       sessionId,

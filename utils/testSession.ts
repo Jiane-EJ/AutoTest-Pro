@@ -54,7 +54,7 @@ export class TestSessionManager {
       updated_at: session.updatedAt.toISOString()
     })
     
-    logSystem(`测试会话已创建: ${sessionId}`, sessionId)
+    logSystem(`测试会话已创建: ${sessionId}`, 'testSession-createSession', sessionId)
     
     return session
   }
@@ -75,7 +75,7 @@ export class TestSessionManager {
     // 更新数据库
     dbUpdateSessionStatus(sessionId, status)
     
-    logSystem(`会话状态更新: ${status}`, sessionId)
+    logSystem(`会话状态更新: ${status}`, 'testSession-updateSessionStatus', sessionId)
   }
 
   getSession(sessionId: string): TestSession | undefined {
@@ -88,7 +88,7 @@ export class TestSessionManager {
 
   async deleteSession(sessionId: string): Promise<void> {
     this.sessions.delete(sessionId)
-    logSystem(`测试会话已删除: ${sessionId}`, sessionId)
+    logSystem(`测试会话已删除: ${sessionId}`, 'testSession-deleteSession', sessionId)
   }
 }
 

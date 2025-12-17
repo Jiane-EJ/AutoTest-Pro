@@ -40,11 +40,11 @@ const logs: Map<string, TestLog[]> = new Map()
 
 export const initDatabase = (sessionId?: string) => {
   try {
-    logSystem('内存数据库初始化成功', sessionId)
+    logSystem('内存数据库初始化成功', 'db-initDatabase', sessionId)
     return true
   } catch (error) {
     const errorMsg = error instanceof Error ? error.message : String(error)
-    logError(`数据库初始化失败: ${errorMsg}`, error, sessionId)
+    logError(`数据库初始化失败: ${errorMsg}`, error, 'db-initDatabase', sessionId)
     throw error
   }
 }
@@ -67,7 +67,7 @@ export const createSession = (sessionData: TestSession) => {
   sessions.set(sessionData.session_id, sessionData)
   steps.set(sessionData.session_id, [])
   logs.set(sessionData.session_id, [])
-  logSystem(`创建测试会话: ${sessionData.session_id}`, sessionData.session_id)
+  logSystem(`创建测试会话: ${sessionData.session_id}`, 'db-createSession', sessionData.session_id)
 }
 
 export const updateSessionStatus = (sessionId: string, status: string) => {
@@ -79,7 +79,7 @@ export const updateSessionStatus = (sessionId: string, status: string) => {
       session.completed_at = new Date().toISOString()
     }
     sessions.set(sessionId, session)
-    logSystem(`更新会话状态: ${sessionId} -> ${status}`, sessionId)
+    logSystem(`更新会话状态: ${sessionId} -> ${status}`, 'db-updateSessionStatus', sessionId)
   }
 }
 
@@ -91,7 +91,7 @@ export const createStep = (stepData: TestStep) => {
   const sessionSteps = steps.get(stepData.session_id) || []
   sessionSteps.push(stepData)
   steps.set(stepData.session_id, sessionSteps)
-  logSystem(`创建测试步骤: ${stepData.session_id} - ${stepData.step_id}`, stepData.session_id)
+  logSystem(`创建测试步骤: ${stepData.session_id} - ${stepData.step_id}`, 'db-createStep', stepData.session_id)
 }
 
 export const updateStep = (sessionId: string, stepId: number, stepData: Partial<TestStep>) => {
@@ -101,7 +101,7 @@ export const updateStep = (sessionId: string, stepId: number, stepData: Partial<
   if (stepIndex !== -1) {
     sessionSteps[stepIndex] = { ...sessionSteps[stepIndex], ...stepData }
     steps.set(sessionId, sessionSteps)
-    logSystem(`更新测试步骤: ${sessionId} - ${stepId}`, sessionId)
+    logSystem(`更新测试步骤: ${sessionId} - ${stepId}`, 'db-updateStep', sessionId)
   }
 }
 
@@ -123,7 +123,7 @@ export const closeDatabase = (sessionId?: string) => {
   sessions.clear()
   steps.clear()
   logs.clear()
-  logSystem('内存数据库已清理', sessionId)
+  logSystem('内存数据库已清理', 'db-closeDatabase', sessionId)
 }
 
 // 初始化数据库

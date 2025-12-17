@@ -130,48 +130,77 @@ export const createTestLogger = (sessionId: string) => {
 }
 
 // 日志记录函数
-export const logSystem = (message: string, sessionId?: string) => {
+/**
+ * 系统日志
+ * @param message 日志消息
+ * @param source 来源标识，格式: 文件名-方法名，例如: "testRunner-executeStep"
+ * @param sessionId 会话ID
+ */
+export const logSystem = (message: string, source?: string, sessionId?: string) => {
   const truncatedMsg = truncateMessage(message)
-  const logMsg = `[SYSTEM] ${truncatedMsg}`
+  const sourceTag = source ? `<${source}> ` : ''
+  const logMsg = `[SYSTEM] ${sourceTag}${truncatedMsg}`
   console.log(logMsg)
-  logger.info(truncatedMsg, { type: 'system', sessionId })
+  logger.info(`${sourceTag}${truncatedMsg}`, { type: 'system', source, sessionId })
   if (sessionId) {
     const testLogger = createTestLogger(sessionId)
-    testLogger.info(truncatedMsg, { type: 'system' })
+    testLogger.info(`${sourceTag}${truncatedMsg}`, { type: 'system' })
   }
 }
 
-export const logAI = (message: string, sessionId?: string) => {
+/**
+ * AI日志
+ * @param message 日志消息
+ * @param model 模型名称，例如: "qwen-max", "qwen-vl-max"
+ * @param sessionId 会话ID
+ */
+export const logAI = (message: string, model?: string, sessionId?: string) => {
   const truncatedMsg = truncateMessage(message)
-  const logMsg = `[AI] ${truncatedMsg}`
+  const modelTag = model ? `<${model}> ` : ''
+  const logMsg = `[AI] ${modelTag}${truncatedMsg}`
   console.log(logMsg)
-  logger.info(truncatedMsg, { type: 'ai', sessionId })
+  logger.info(`${modelTag}${truncatedMsg}`, { type: 'ai', model, sessionId })
   if (sessionId) {
     const testLogger = createTestLogger(sessionId)
-    testLogger.info(truncatedMsg, { type: 'ai' })
+    testLogger.info(`${modelTag}${truncatedMsg}`, { type: 'ai' })
   }
 }
 
-export const logMCP = (message: string, sessionId?: string) => {
+/**
+ * MCP工具日志
+ * @param message 日志消息
+ * @param tool 工具名称，例如: "playwright", "browser-mcp", "context7"
+ * @param sessionId 会话ID
+ */
+export const logMCP = (message: string, tool?: string, sessionId?: string) => {
   const truncatedMsg = truncateMessage(message)
-  const logMsg = `[MCP] ${truncatedMsg}`
+  const toolTag = tool ? `<${tool}> ` : ''
+  const logMsg = `[MCP] ${toolTag}${truncatedMsg}`
   console.log(logMsg)
-  logger.info(truncatedMsg, { type: 'mcp', sessionId })
+  logger.info(`${toolTag}${truncatedMsg}`, { type: 'mcp', tool, sessionId })
   if (sessionId) {
     const testLogger = createTestLogger(sessionId)
-    testLogger.info(truncatedMsg, { type: 'mcp' })
+    testLogger.info(`${toolTag}${truncatedMsg}`, { type: 'mcp' })
   }
 }
 
-export const logError = (message: string, error?: any, sessionId?: string) => {
+/**
+ * 错误日志
+ * @param message 日志消息
+ * @param error 错误对象
+ * @param source 来源标识，格式: 文件名-方法名，例如: "testRunner-executeStep"
+ * @param sessionId 会话ID
+ */
+export const logError = (message: string, error?: any, source?: string, sessionId?: string) => {
   const truncatedMsg = truncateMessage(message)
   const errorMsg = error instanceof Error ? error.message : String(error)
-  const logMsg = `[ERROR] ${truncatedMsg} - ${errorMsg}`
+  const sourceTag = source ? `<${source}> ` : ''
+  const logMsg = `[ERROR] ${sourceTag}${truncatedMsg} - ${errorMsg}`
   console.error(logMsg)
-  logger.error(truncatedMsg, { error, type: 'error', sessionId })
+  logger.error(`${sourceTag}${truncatedMsg}`, { error, type: 'error', source, sessionId })
   if (sessionId) {
     const testLogger = createTestLogger(sessionId)
-    testLogger.error(truncatedMsg, { error, type: 'error' })
+    testLogger.error(`${sourceTag}${truncatedMsg}`, { error, type: 'error' })
   }
 }
 

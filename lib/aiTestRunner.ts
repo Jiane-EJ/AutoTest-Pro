@@ -34,7 +34,7 @@ export async function runAITest(sessionId: string, config: TestConfig) {
   const startTime = Date.now()
   
   try {
-    logSystem(`开始AI测试流程: ${sessionId}`, sessionId)
+    logSystem(`开始AI测试流程: ${sessionId}`, 'aiTestRunner-runAITest', sessionId)
     
     // 更新会话状态为运行中
     await sessionManager.updateSessionStatus(sessionId, 'running')
@@ -55,7 +55,7 @@ export async function runAITest(sessionId: string, config: TestConfig) {
       const step = testSteps[i]
       const stepStartTime = Date.now()
       
-      logSystem(`开始执行步骤 ${step.id}: ${step.title}`, sessionId)
+      logSystem(`开始执行步骤 ${step.id}: ${step.title}`, 'aiTestRunner-runAITest', sessionId)
       
       // 更新步骤为运行中
       await updateStep(sessionId, step.id, {
@@ -64,7 +64,7 @@ export async function runAITest(sessionId: string, config: TestConfig) {
       })
       
       // 添加AI分析日志
-      logAI(`分析步骤 ${step.id} 中... 发现相关元素。目标: ${step.title}`, sessionId)
+      logAI(`分析步骤 ${step.id} 中... 发现相关元素。目标: ${step.title}`, 'qwen-max', sessionId)
       await addLog(sessionId, {
         timestamp: new Date().toLocaleTimeString('zh-CN', { 
           hour: '2-digit', 
@@ -90,7 +90,7 @@ export async function runAITest(sessionId: string, config: TestConfig) {
             switch (step.id) {
               case 1:
                 // 导航到登录页面
-                logAI(`[步骤1] 初始化浏览器并导航到登录页面...`, sessionId)
+                logAI(`[步骤1] 初始化浏览器并导航到登录页面...`, 'qwen-max', sessionId)
                 const navResult = await SmartStepExecutor.executeNavigation(
                   { sessionId, stepId: step.id, stepTitle: step.title, config },
                   config.url
@@ -102,11 +102,11 @@ export async function runAITest(sessionId: string, config: TestConfig) {
                 
               case 2:
                 // 分析登录页面结构
-                logAI(`[步骤2] 分析登录页面结构...`, sessionId)
+                logAI(`[步骤2] 分析登录页面结构...`, 'qwen-max', sessionId)
                 const debugResult = await mcpManager.debugPageElements(sessionId)
                 
                 if (debugResult.success && debugResult.data) {
-                  logAI(`页面元素: ${JSON.stringify(debugResult.data)}`, sessionId)
+                  logAI(`页面元素: ${JSON.stringify(debugResult.data)}`, 'qwen-max', sessionId)
                   await addLog(sessionId, {
                     timestamp: new Date().toLocaleTimeString('zh-CN', { 
                       hour: '2-digit', 
@@ -121,7 +121,7 @@ export async function runAITest(sessionId: string, config: TestConfig) {
                 
               case 3:
                 // 执行完整的登录流程
-                logAI(`[步骤3] 执行完整登录流程...`, sessionId)
+                logAI(`[步骤3] 执行完整登录流程...`, 'qwen-max', sessionId)
                 const loginResult = await SmartStepExecutor.executeLoginFlow(
                   { sessionId, stepId: step.id, stepTitle: step.title, config }
                 )
@@ -143,14 +143,14 @@ export async function runAITest(sessionId: string, config: TestConfig) {
                 
               case 4:
                 // 通过菜单导航到功能测试页面（不再直接拼接URL）
-                logAI(`[步骤4] 通过菜单导航到功能测试页面...`, sessionId)
+                logAI(`[步骤4] 通过菜单导航到功能测试页面...`, 'qwen-max', sessionId)
                 
                 // 从 requirement 中提取菜单路径
                 // 例如: "完整测试小区管理-小区信息管理下的功能" -> "小区管理-小区信息管理"
                 const menuPathMatch = config.requirement.match(/测试(.+?)下的功能/)
                 const menuPath = menuPathMatch ? menuPathMatch[1] : '小区管理-小区信息管理'
                 
-                logAI(`[步骤4] 目标菜单路径: ${menuPath}`, sessionId)
+                logAI(`[步骤4] 目标菜单路径: ${menuPath}`, 'qwen-max', sessionId)
                 
                 const funcNavResult = await SmartStepExecutor.navigateByMenu(
                   { sessionId, stepId: step.id, stepTitle: step.title, config },
@@ -158,7 +158,7 @@ export async function runAITest(sessionId: string, config: TestConfig) {
                 )
                 
                 if (!funcNavResult.success) {
-                  logAI(`[步骤4] 菜单导航失败，尝试等待后重试...`, sessionId)
+                  logAI(`[步骤4] 菜单导航失败，尝试等待后重试...`, 'qwen-max', sessionId)
                   // 等待一下再重试
                   await new Promise(resolve => setTimeout(resolve, 2000))
                   const retryResult = await SmartStepExecutor.navigateByMenu(
@@ -183,7 +183,7 @@ export async function runAITest(sessionId: string, config: TestConfig) {
                 
               case 5:
                 // 执行页面功能测试
-                logAI(`[步骤5] 执行页面功能测试...`, sessionId)
+                logAI(`[步骤5] 执行页面功能测试...`, 'qwen-max', sessionId)
                 const funcTestResult = await SmartStepExecutor.executePageFunctionalityTest(
                   { sessionId, stepId: step.id, stepTitle: step.title, config },
                   config.requirement
@@ -205,7 +205,7 @@ export async function runAITest(sessionId: string, config: TestConfig) {
                 
               case 6:
                 // 生成测试报告
-                logAI(`[步骤6] 生成测试报告...`, sessionId)
+                logAI(`[步骤6] 生成测试报告...`, 'qwen-vl-max', sessionId)
                 const reportAnalysis = await qwenClient.chatCompletion({
                   model: 'qwen-vl-max',
                   messages: [
@@ -222,7 +222,7 @@ export async function runAITest(sessionId: string, config: TestConfig) {
                   max_tokens: 1000
                 }, sessionId)
                 
-                logAI(`测试报告生成完成`, sessionId)
+                logAI(`测试报告生成完成`, 'qwen-vl-max', sessionId)
                 await addLog(sessionId, {
                   timestamp: new Date().toLocaleTimeString('zh-CN', { 
                     hour: '2-digit', 
@@ -236,7 +236,7 @@ export async function runAITest(sessionId: string, config: TestConfig) {
                 
               case 7:
                 // 清理测试环境
-                logAI(`[步骤7] 清理测试环境...`, sessionId)
+                logAI(`[步骤7] 清理测试环境...`, 'qwen-max', sessionId)
                 await addLog(sessionId, {
                   timestamp: new Date().toLocaleTimeString('zh-CN', { 
                     hour: '2-digit', 
@@ -270,7 +270,7 @@ export async function runAITest(sessionId: string, config: TestConfig) {
           log: `${step.title} - 执行成功`
         })
         
-        logSystem(`步骤 ${step.id} 完成，耗时: ${durationStr}`, sessionId)
+        logSystem(`步骤 ${step.id} 完成，耗时: ${durationStr}`, 'aiTestRunner-runAITest', sessionId)
         
       } catch (error) {
         // 增强的错误处理
@@ -306,10 +306,10 @@ export async function runAITest(sessionId: string, config: TestConfig) {
             message: `步骤 ${step.id} 已跳过: ${errorMsg}`
           })
           
-          logSystem(`步骤 ${step.id} 已跳过，继续执行后续步骤`, sessionId)
+          logSystem(`步骤 ${step.id} 已跳过，继续执行后续步骤`, 'aiTestRunner-runAITest', sessionId)
         } else {
           // 步骤真正失败
-          logError(`步骤 ${step.id} 失败: ${errorMsg}`, error as Error, sessionId)
+          logError(`步骤 ${step.id} 失败: ${errorMsg}`, error as Error, 'aiTestRunner-runAITest', sessionId)
           
           await updateStep(sessionId, step.id, {
             status: 'error',
@@ -342,7 +342,7 @@ export async function runAITest(sessionId: string, config: TestConfig) {
     const milliseconds = totalDuration % 1000
     const totalDurationStr = `${hours < 10 ? '0' + hours : hours}:${minutes < 10 ? '0' + minutes : minutes}:${seconds < 10 ? '0' + seconds : seconds}:${milliseconds < 10 ? '00' + milliseconds : milliseconds < 100 ? '0' + milliseconds : milliseconds}`
     
-    logSystem(`AI测试完成: ${sessionId}，总耗时: ${totalDurationStr}`, sessionId)
+    logSystem(`AI测试完成: ${sessionId}，总耗时: ${totalDurationStr}`, 'aiTestRunner-runAITest', sessionId)
     
     await sessionManager.updateSessionStatus(sessionId, 'completed')
     
@@ -358,7 +358,7 @@ export async function runAITest(sessionId: string, config: TestConfig) {
     })
     
   } catch (error) {
-    logError(`AI测试失败: ${sessionId}`, error as Error, sessionId)
+    logError(`AI测试失败: ${sessionId}`, error as Error, 'aiTestRunner-runAITest', sessionId)
     
     // 使用错误处理器进行最终错误处理
     await errorHandler.handleError(
@@ -388,7 +388,7 @@ export async function runAITest(sessionId: string, config: TestConfig) {
       await mcpManager.cleanup()
       await resourceManager.cleanupUnusedResources(60000)
     } catch (cleanupError) {
-      logError('资源清理失败', cleanupError as Error, sessionId)
+      logError('资源清理失败', cleanupError as Error, 'aiTestRunner-runAITest', sessionId)
     }
   }
 }

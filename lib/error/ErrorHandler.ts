@@ -180,19 +180,19 @@ export class ErrorHandler {
         break
 
       case RecoveryStrategy.SKIP_AND_CONTINUE:
-        logSystem(`跳过失败操作: ${errorInfo.context.operation}`, errorInfo.context.sessionId)
+        logSystem(`跳过失败操作: ${errorInfo.context.operation}`, 'ErrorHandler-executeRecoveryStrategy', errorInfo.context.sessionId)
         return { shouldContinue: true }
 
       case RecoveryStrategy.FALLBACK_TO_SIMULATION:
-        logSystem(`使用模拟模式替代: ${errorInfo.context.operation}`, errorInfo.context.sessionId)
+        logSystem(`使用模拟模式替代: ${errorInfo.context.operation}`, 'ErrorHandler-executeRecoveryStrategy', errorInfo.context.sessionId)
         return { shouldContinue: true, recoveryAction: this.getSimulationFallback(errorInfo) }
 
       case RecoveryStrategy.ESCALATE:
-        logError(`错误已升级: ${errorInfo.message}`, errorInfo.originalError, errorInfo.context.sessionId)
+        logError(`错误已升级: ${errorInfo.message}`, errorInfo.originalError, 'ErrorHandler-executeRecoveryStrategy', errorInfo.context.sessionId)
         return { shouldContinue: false }
 
       case RecoveryStrategy.ABORT:
-        logError(`操作被中止: ${errorInfo.message}`, errorInfo.originalError, errorInfo.context.sessionId)
+        logError(`操作被中止: ${errorInfo.message}`, errorInfo.originalError, 'ErrorHandler-executeRecoveryStrategy', errorInfo.context.sessionId)
         return { shouldContinue: false }
     }
 
@@ -210,31 +210,31 @@ export class ErrorHandler {
       // 等待延迟（指数退避）
       if (attempts > 1) {
         const delay = this.calculateBackoffDelay(attempts - 1, config)
-        logSystem(`重试操作 ${config.maxRetries - attempts + 1}/${config.maxRetries}, 等待 ${delay}ms`, errorInfo.context.sessionId)
+        logSystem(`重试操作 ${config.maxRetries - attempts + 1}/${config.maxRetries}, 等待 ${delay}ms`, 'ErrorHandler-retryOperation', errorInfo.context.sessionId)
         await new Promise(resolve => setTimeout(resolve, delay))
       }
 
       // 检查重试条件
       if (config.retryCondition && !config.retryCondition(lastError)) {
-        logSystem(`重试条件不满足，停止重试`, errorInfo.context.sessionId)
+        logSystem(`重试条件不满足，停止重试`, 'ErrorHandler-retryOperation', errorInfo.context.sessionId)
         break
       }
 
       try {
         // 这里可以执行具体的重试逻辑
-        logSystem(`重试操作: ${errorInfo.context.operation}`, errorInfo.context.sessionId)
+        logSystem(`重试操作: ${errorInfo.context.operation}`, 'ErrorHandler-retryOperation', errorInfo.context.sessionId)
         
         // 如果重试成功，返回继续执行
         return { shouldContinue: true }
         
       } catch (error) {
         lastError = error as Error
-        logSystem(`重试 ${attempts} 失败: ${lastError.message}`, errorInfo.context.sessionId)
+        logSystem(`重试 ${attempts} 失败: ${lastError.message}`, 'ErrorHandler-retryOperation', errorInfo.context.sessionId)
       }
     }
 
     // 所有重试都失败了
-    logError(`操作重试 ${config.maxRetries} 次后仍失败: ${errorInfo.message}`, errorInfo.originalError, errorInfo.context.sessionId)
+    logError(`操作重试 ${config.maxRetries} 次后仍失败: ${errorInfo.message}`, errorInfo.originalError, 'ErrorHandler-retryOperation', errorInfo.context.sessionId)
     return { shouldContinue: false }
   }
 
@@ -247,7 +247,7 @@ export class ErrorHandler {
   // 获取模拟降级方案
   private getSimulationFallback(errorInfo: ErrorInfo): () => Promise<any> {
     return async () => {
-      logSystem(`执行模拟降级: ${errorInfo.context.operation}`, errorInfo.context.sessionId)
+      logSystem(`执行模拟降级: ${errorInfo.context.operation}`, 'ErrorHandler-getSimulationFallback', errorInfo.context.sessionId)
       
       // 根据错误类型返回不同的模拟结果
       switch (errorInfo.type) {
@@ -274,7 +274,7 @@ export class ErrorHandler {
     // 如果最近发生的错误太多，且时间间隔在超时范围内，打开熔断器
     if (stats.count >= this.circuitBreakerThreshold && 
         timeSinceLastOccurrence < this.circuitBreakerTimeout) {
-      logSystem(`熔断器打开: ${errorType} 错误频率过高`, undefined)
+      logSystem(`熔断器打开: ${errorType} 错误频率过高`, 'ErrorHandler-isCircuitBreakerOpen')
       return true
     }
 
@@ -304,6 +304,7 @@ export class ErrorHandler {
     logError(
       `[${errorInfo.type}] ${errorInfo.message} | 严重程度: ${errorInfo.severity} | 操作: ${errorInfo.context.operation}`,
       errorInfo.originalError,
+      'ErrorHandler-logError',
       context.sessionId
     )
 
@@ -326,7 +327,7 @@ export class ErrorHandler {
     this.errorStats.forEach((_, key) => {
       this.errorStats.set(key, { count: 0, lastOccurrence: new Date() })
     })
-    logSystem('错误处理器已重置', undefined)
+    logSystem('错误处理器已重置', 'ErrorHandler-resetSystem')
   }
 
   // 获取错误统计

@@ -68,7 +68,7 @@ export class TimeoutManager {
 
   // 处理超时
   private handleTimeout(operationName: string, config: TimeoutConfig, sessionId: string | undefined, timeoutId: string) {
-    logSystem(`操作 ${operationName} 达到超时限制`, sessionId)
+    logSystem(`操作 ${operationName} 达到超时限制`, 'TimeoutManager-handleTimeout', sessionId)
 
     const context = {
       sessionId,
@@ -101,14 +101,14 @@ export class TimeoutManager {
         break
 
       case 'continue':
-        logSystem(`操作 ${operationName} 超时但继续执行`, sessionId)
+        logSystem(`操作 ${operationName} 超时但继续执行`, 'TimeoutManager-handleTimeout', sessionId)
         break
     }
   }
 
   // 处理超时警告
   private handleTimeoutWarning(operationName: string, config: TimeoutConfig, sessionId: string | undefined, timeoutId: string) {
-    logSystem(`操作 ${operationName} 执行时间较长 (${config.warningThreshold}ms)`, sessionId)
+    logSystem(`操作 ${operationName} 执行时间较长 (${config.warningThreshold}ms)`, 'TimeoutManager-handleTimeoutWarning', sessionId)
   }
 
   // 清除超时
