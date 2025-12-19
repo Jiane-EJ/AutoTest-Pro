@@ -360,7 +360,8 @@ export class SmartStepExecutor {
   private static async executeTestStep(
     step: any,
     sessionId: string,
-    stepIndex: number
+    stepIndex: number,
+    strict: boolean = false
   ): Promise<{ success: boolean; result?: any; error?: string }> {
     try {
       const action = step.action?.toLowerCase() || ''
@@ -376,7 +377,7 @@ export class SmartStepExecutor {
           logMCP(`填充输入框: ${selector} = ${value}`, 'playwright', sessionId)
           const fillResult = await mcpManager.callPlaywright(
             'fill',
-            { selector, value },
+            { selector, value, strict },
             sessionId
           )
           if (!fillResult.success) {
@@ -389,7 +390,7 @@ export class SmartStepExecutor {
           logMCP(`点击元素: ${selector}`, 'playwright', sessionId)
           const clickResult = await mcpManager.callPlaywright(
             'click',
-            { selector },
+            { selector, strict },
             sessionId
           )
           if (!clickResult.success) {
@@ -403,7 +404,7 @@ export class SmartStepExecutor {
           logMCP(`选择下拉框: ${selector} = ${value}`, 'playwright', sessionId)
           const selectResult = await mcpManager.callPlaywright(
             'select',
-            { selector, value },
+            { selector, value, strict },
             sessionId
           )
           if (!selectResult.success) {
@@ -416,7 +417,7 @@ export class SmartStepExecutor {
           logMCP(`悬停元素: ${selector}`, 'playwright', sessionId)
           const hoverResult = await mcpManager.callPlaywright(
             'hover',
-            { selector },
+            { selector, strict },
             sessionId
           )
           if (!hoverResult.success) {
@@ -515,6 +516,9 @@ export class SmartStepExecutor {
 
       let testSteps: any[] = analysisResult.testSteps || []
 
+      const maxDepth = 3
+      let currentDepth = 0
+
       if (testSteps.length === 0) {
         logAI(`[步骤3] 尝试从分析结果中解析测试步骤...`, getModelName(), sessionId)
         
@@ -540,7 +544,7 @@ export class SmartStepExecutor {
         const step = testSteps[i]
         logAI(`\n[执行进度] ${i + 1}/${testSteps.length}`, getModelName(), sessionId)
 
-        const stepResult = await this.executeTestStep(step, sessionId, i)
+        const stepResult = await this.executeTestStep(step, sessionId, i, true)
 
         if (stepResult.success) {
           successCount++
@@ -560,6 +564,26 @@ export class SmartStepExecutor {
             error: stepResult.error
           })
           logAI(`✗ 步骤 ${i + 1} 执行失败: ${stepResult.error}`, getModelName(), sessionId)
+
+          if (currentDepth < maxDepth) {
+            currentDepth++
+            logAI(`第${i + 1}步失败，触发第${currentDepth + 1}轮聚焦分析`, getModelName(), sessionId)
+            const refocusedAnalysis = await pageAnalyzer.analyzePageFunctionality(
+              '',
+              requirement,
+              sessionId,
+              currentDepth
+            )
+
+            if (refocusedAnalysis.success && (refocusedAnalysis.testSteps || []).length > 0) {
+              const newSteps = refocusedAnalysis.testSteps
+              // 替换后续步骤，避免继续执行已知不可靠的计划
+              testSteps = [...testSteps.slice(0, i + 1), ...newSteps]
+
+              logAI(`聚焦分析生成 ${newSteps.length} 个新步骤，替换后续计划并继续执行`, getModelName(), sessionId)
+              continue
+            }
+          }
 
           // 尝试生成补救步骤
           logAI(`[补救] 尝试为失败的步骤生成补救方案...`, getModelName(), sessionId)
@@ -586,7 +610,7 @@ export class SmartStepExecutor {
             try {
               const recoverySteps = this.parseRecoverySteps(recoveryAnalysis)
               for (const recoveryStep of recoverySteps) {
-                const recoveryResult = await this.executeTestStep(recoveryStep, sessionId, i)
+                const recoveryResult = await this.executeTestStep(recoveryStep, sessionId, i, false)
                 if (recoveryResult.success) {
                   logAI(`✓ 补救步骤执行成功`, getModelName(), sessionId)
                   successCount++

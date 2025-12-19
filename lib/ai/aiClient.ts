@@ -443,9 +443,34 @@ export class AIClient {
     requirement: string,
     apiInfo?: string,
     errorInfo?: string,
+    areas?: any[],
+    depth: number = 0,
     sessionId?: string
   ): Promise<string> {
     const model = getModelForPurpose(this.provider, ModelPurpose.TEST_GEN)
+
+    const safeAreas = Array.isArray(areas) ? areas : []
+    const areaInfo = safeAreas.length > 0
+      ? `
+## 可操作区域 (第${depth + 1}轮探索，共${safeAreas.length}个候选区域)
+${safeAreas.map((area: any, index: number) => {
+  const desc = area?.description || area?.selector || ''
+  const areaElements = area?.elements || {}
+  const inputs = Array.isArray(areaElements.inputs) ? areaElements.inputs : []
+  const selects = Array.isArray(areaElements.selects) ? areaElements.selects : []
+  const buttons = Array.isArray(areaElements.buttons) ? areaElements.buttons : []
+  const tables = Array.isArray(areaElements.tables) ? areaElements.tables : []
+  return `
+【区域${index + 1}】${desc}
+- 区域容器Selector: ${area?.selector || '未知'}
+- 输入框: ${inputs.slice(0, 15).map((i: any) => i.selector).join(', ') || '无'}
+- 下拉框: ${selects.slice(0, 10).map((s: any) => s.selector).join(', ') || '无'}
+- 按钮: ${buttons.slice(0, 20).map((b: any) => `${b.selector}${b.text ? `("${String(b.text).substring(0, 10)}")` : ''}`).join(', ') || '无'}
+- 表格: ${(tables || []).slice(0, 5).map((t: any) => t.selector).join(', ') || '无'}
+`
+}).join('\n')}
+`
+      : ''
     
     const analysisPrompt = `
 你是页面功能测试专家。请根据【实际获取到的页面元素】生成合理的用户操作测试步骤。
@@ -496,12 +521,14 @@ ${elements?.tables?.map((table: any, index: number) =>
    - 行数: ${table.rowCount || '未知'}
    - 列数: ${table.columnCount || '未知'}
 `).join('\n') || '无'}
+${areaInfo}
 ${apiInfo || ''}
 ${errorInfo || ''}
 
 ## 测试步骤生成规则
 1. 【页面交互优先】优先测试用户界面交互功能，而非API接口验证
 2. 【基于元素属性】利用Keywords字段来判断元素功能，而不是猜测
+3. 【区域优先】如果存在“可操作区域”，优先从区域内元素选择selector（因为更聚焦、更可靠）
 3. 【实际操作步骤】生成用户真实能执行的操作步骤：
    - 输入框：填写有意义的测试数据（根据placeholder判断用途）
    - 按钮：点击有功能的按钮（根据keywords判断功能）
@@ -509,6 +536,7 @@ ${errorInfo || ''}
 4. 【避免API依赖】不要生成API验证步骤，除非有明确的API状态元素需要验证
 5. 【合理顺序】按照用户实际操作流程的合理顺序排列步骤
 6. 【只使用真实元素】必须使用上面列出的真实selector
+7. 【绝对禁止猜测】不要输出任何未出现在“实际获取到的页面元素详情/可操作区域”的selector
 
 ## 操作类型说明
 - fill: 填写输入框

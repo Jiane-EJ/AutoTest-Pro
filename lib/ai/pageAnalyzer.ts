@@ -36,6 +36,20 @@ export interface PageElements {
   links: PageElement[]
   pageTitle: string
   pageUrl: string
+  areas?: PageArea[]
+}
+
+export interface PageArea {
+  selector: string
+  description?: string
+  elements: {
+    inputs: PageElement[]
+    selects: PageElement[]
+    buttons: PageElement[]
+    tables: any[]
+    forms: any[]
+    links: PageElement[]
+  }
 }
 
 export interface PageAnalysisResult {
@@ -202,7 +216,8 @@ ${JSON.stringify(elements.buttons, null, 2)}
   async analyzePageFunctionality(
     pageHtml: string,
     requirement: string,
-    sessionId?: string
+    sessionId?: string,
+    depth: number = 0
   ): Promise<{
     success: boolean
     testSteps: any[]
@@ -255,7 +270,34 @@ ${context.consoleErrors.slice(0, 5).map((e: any) => `- ${e.text}`).join('\n')}
       }
 
       const aiClient = getAIClient()
-      const aiAnalysis = await aiClient.analyzePageForTesting(elements, requirement, apiInfo, errorInfo, sessionId)
+      let areas = (context.areas || elements.areas || []) as PageArea[]
+
+      if (depth > 0 && areas.length > 0) {
+        const maxAreas = 5
+        const candidateAreas = areas.slice(0, maxAreas)
+
+        const refreshedAreas: PageArea[] = []
+        for (const area of candidateAreas) {
+          const areaSelector = area?.selector
+          if (!areaSelector) {
+            continue
+          }
+
+          const areaResult = await mcpManager.getElementsInArea(areaSelector, sessionId)
+          if (areaResult.success && areaResult.data) {
+            refreshedAreas.push({
+              selector: areaSelector,
+              description: area.description,
+              elements: areaResult.data
+            } as PageArea)
+          } else {
+            refreshedAreas.push(area)
+          }
+        }
+
+        areas = refreshedAreas
+      }
+      const aiAnalysis = await aiClient.analyzePageForTesting(elements, requirement, apiInfo, errorInfo, areas, depth, sessionId)
 
       logAI(`AI分析完成: ${aiAnalysis.substring(0, 300)}...`, getModelName(), sessionId)
 
@@ -269,6 +311,31 @@ ${context.consoleErrors.slice(0, 5).map((e: any) => `- ${e.text}`).join('\n')}
       } catch (e) {
         logAI('解析AI返回的JSON失败，返回原始分析结果', getModelName(), sessionId)
       }
+
+      // 严格验证每个步骤的选择器：只允许使用MCP真实返回的selector（global + areas）
+      const validSelectorSet = new Set<string>()
+      ;(elements.inputs || []).forEach(el => validSelectorSet.add(el.selector))
+      ;(elements.selects || []).forEach(el => validSelectorSet.add(el.selector))
+      ;(elements.buttons || []).forEach(el => validSelectorSet.add(el.selector))
+      ;(areas || []).forEach(area => {
+        ;(area.elements?.inputs || []).forEach(el => validSelectorSet.add(el.selector))
+        ;(area.elements?.selects || []).forEach(el => validSelectorSet.add(el.selector))
+        ;(area.elements?.buttons || []).forEach(el => validSelectorSet.add(el.selector))
+      })
+
+      const rawCount = testSteps.length
+      testSteps = (testSteps || []).filter((step: any) => {
+        const selector = step?.selector
+        if (!selector || typeof selector !== 'string') {
+          return false
+        }
+        const isValid = validSelectorSet.has(selector)
+        if (!isValid) {
+          logAI(`⚠️ 选择器无效，已过滤: ${selector}`, getModelName(), sessionId)
+        }
+        return isValid
+      })
+      logAI(`✅ 选择器验证通过 ${testSteps.length}/${rawCount} 个测试步骤 (depth=${depth})`, getModelName(), sessionId)
 
       return {
         success: true,

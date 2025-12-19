@@ -243,9 +243,13 @@ export class MCPManager {
         case 'navigate':
           return await this.realNavigate(page, params.url, sessionId)
         case 'fill':
-          return await this.realFill(page, params.selector, params.value, sessionId)
+          return await this.realFill(page, params.selector, params.value, !!params.strict, sessionId)
         case 'click':
-          return await this.realClick(page, params.selector, sessionId)
+          return await this.realClick(page, params.selector, !!params.strict, sessionId)
+        case 'select':
+          return await this.realSelect(page, params.selector, params.value, !!params.strict, sessionId)
+        case 'hover':
+          return await this.realHover(page, params.selector, !!params.strict, sessionId)
         case 'wait_for_element':
           return await this.realWaitForElement(page, params.selector, sessionId)
         case 'get_visible_html':
@@ -294,7 +298,7 @@ export class MCPManager {
     }
   }
 
-  private async realFill(page: Page, selector: string, value: string, sessionId?: string): Promise<MCPResult> {
+  private async realFill(page: Page, selector: string, value: string, strict: boolean, sessionId?: string): Promise<MCPResult> {
     const tool = 'playwright'
     try {
       logMCP(`输入文本到元素 [${selector}]: ${value}`, tool, sessionId)
@@ -305,6 +309,9 @@ export class MCPManager {
       try {
         await page.waitForSelector(selector, { timeout: 5000 })
       } catch (waitError) {
+        if (strict) {
+          throw new Error(`无法找到输入框: ${selector}`)
+        }
         logMCP(`元素 [${selector}] 未找到，尝试使用替代选择器...`, tool, sessionId)
         
         // 尝试替代选择器
@@ -345,6 +352,73 @@ export class MCPManager {
           status: 'completed',
           selector: targetSelector,
           value: value
+        }
+      }
+    } catch (error) {
+      throw error
+    }
+  }
+
+  private async realSelect(page: Page, selector: string, value: string, strict: boolean, sessionId?: string): Promise<MCPResult> {
+    const tool = 'playwright'
+    try {
+      logMCP(`选择下拉框 [${selector}]: ${value}`, tool, sessionId)
+
+      try {
+        await page.waitForSelector(selector, { timeout: 5000 })
+      } catch {
+        if (strict) {
+          throw new Error(`无法找到下拉框: ${selector}`)
+        }
+      }
+
+      // 优先尝试原生 selectOption
+      const selected = await page.selectOption(selector, { label: value }).catch(async () => {
+        return await page.selectOption(selector, { value }).catch(() => null)
+      })
+
+      if (!selected) {
+        if (strict) {
+          throw new Error(`无法选择下拉框选项: ${selector} = ${value}`)
+        }
+        // 非严格模式：尝试点击打开后选择文本
+        await this.humanLikeClickBySelector(page, selector, sessionId)
+        await page.getByText(value, { exact: false }).first().click().catch(() => {})
+      }
+
+      return {
+        success: true,
+        data: {
+          status: 'completed',
+          selector,
+          value
+        }
+      }
+    } catch (error) {
+      throw error
+    }
+  }
+
+  private async realHover(page: Page, selector: string, strict: boolean, sessionId?: string): Promise<MCPResult> {
+    const tool = 'playwright'
+    try {
+      logMCP(`悬停元素: ${selector}`, tool, sessionId)
+
+      try {
+        await page.waitForSelector(selector, { timeout: 5000 })
+      } catch {
+        if (strict) {
+          throw new Error(`无法找到元素: ${selector}`)
+        }
+      }
+
+      await page.hover(selector)
+
+      return {
+        success: true,
+        data: {
+          status: 'completed',
+          selector
         }
       }
     } catch (error) {
@@ -556,13 +630,16 @@ export class MCPManager {
     }
   }
 
-  private async realClick(page: Page, selector: string, sessionId?: string): Promise<MCPResult> {
+  private async realClick(page: Page, selector: string, strict: boolean, sessionId?: string): Promise<MCPResult> {
     const tool = 'playwright'
     try {
       logMCP(`点击元素: ${selector}`, tool, sessionId)
       
       // 处理文本选择器 (text="xxx")
       if (selector.startsWith('text=')) {
+        if (strict) {
+          throw new Error(`严格模式不允许使用文本选择器: ${selector}`)
+        }
         const text = selector.replace('text=', '').replace(/"/g, '')
         logMCP(`使用文本选择器查找: ${text}`, tool, sessionId)
         const element = page.getByText(text, { exact: false })
@@ -584,6 +661,9 @@ export class MCPManager {
           data: { status: 'completed', selector }
         }
       } catch (waitError) {
+        if (strict) {
+          throw new Error(`无法找到按钮: ${selector}`)
+        }
         logMCP(`元素 [${selector}] 未找到，尝试使用替代选择器...`, tool, sessionId)
         
         // 检测当前页面类型
@@ -856,225 +936,283 @@ export class MCPManager {
 
       logMCP('获取页面可交互元素...', tool, sessionId)
 
-        // 辅助函数：提取功能关键词（全局函数）
+      const elements = await this.page.evaluate(() => {
         const extractFunctionalKeywords = (text: string, className: string, title: string, ariaLabel: string): string[] => {
           const keywords: string[] = []
           const allText = `${text} ${className} ${title} ${ariaLabel}`.toLowerCase()
-          
-          // 搜索相关关键词
-          if (allText.includes('搜索') || allText.includes('查询') || allText.includes('search') || allText.includes('query')) {
-            keywords.push('搜索')
-          }
-          
-          // 新增相关关键词
-          if (allText.includes('新增') || allText.includes('添加') || allText.includes('新建') || allText.includes('add') || allText.includes('create') || allText.includes('new')) {
-            keywords.push('新增')
-          }
-          
-          // 编辑相关关键词
-          if (allText.includes('编辑') || allText.includes('修改') || allText.includes('更改') || allText.includes('edit') || allText.includes('update') || allText.includes('modify')) {
-            keywords.push('编辑')
-          }
-          
-          // 删除相关关键词
-          if (allText.includes('删除') || allText.includes('移除') || allText.includes('del') || allText.includes('delete') || allText.includes('remove')) {
-            keywords.push('删除')
-          }
-          
-          // 重置相关关键词
-          if (allText.includes('重置') || allText.includes('清空') || allText.includes('清除') || allText.includes('reset') || allText.includes('clear')) {
-            keywords.push('重置')
-          }
-          
-          // 保存相关关键词
-          if (allText.includes('保存') || allText.includes('提交') || allText.includes('确认') || allText.includes('save') || allText.includes('submit') || allText.includes('confirm')) {
-            keywords.push('保存')
-          }
-          
-          // 查看相关关键词
-          if (allText.includes('查看') || allText.includes('详情') || allText.includes('view') || allText.includes('detail') || allText.includes('show')) {
-            keywords.push('查看')
-          }
-          
-          // 导出相关关键词
-          if (allText.includes('导出') || allText.includes('下载') || allText.includes('export') || allText.includes('download')) {
-            keywords.push('导出')
-          }
-          
-          // 导入相关关键词
-          if (allText.includes('导入') || allText.includes('批量导入') || allText.includes('import') || allText.includes('batch')) {
-            keywords.push('导入')
-          }
-          
-          // 分页相关关键词
-          if (allText.includes('下一页') || allText.includes('上一页') || allText.includes('next') || allText.includes('prev') || allText.includes('page')) {
-            keywords.push('分页')
-          }
-          
+
+          if (allText.includes('搜索') || allText.includes('查询') || allText.includes('search') || allText.includes('query')) keywords.push('搜索')
+          if (allText.includes('新增') || allText.includes('添加') || allText.includes('新建') || allText.includes('add') || allText.includes('create') || allText.includes('new')) keywords.push('新增')
+          if (allText.includes('编辑') || allText.includes('修改') || allText.includes('更改') || allText.includes('edit') || allText.includes('update') || allText.includes('modify')) keywords.push('编辑')
+          if (allText.includes('删除') || allText.includes('移除') || allText.includes('del') || allText.includes('delete') || allText.includes('remove')) keywords.push('删除')
+          if (allText.includes('重置') || allText.includes('清空') || allText.includes('清除') || allText.includes('reset') || allText.includes('clear')) keywords.push('重置')
+          if (allText.includes('保存') || allText.includes('提交') || allText.includes('确认') || allText.includes('save') || allText.includes('submit') || allText.includes('confirm')) keywords.push('保存')
+          if (allText.includes('查看') || allText.includes('详情') || allText.includes('view') || allText.includes('detail') || allText.includes('show')) keywords.push('查看')
+          if (allText.includes('导出') || allText.includes('下载') || allText.includes('export') || allText.includes('download')) keywords.push('导出')
+          if (allText.includes('导入') || allText.includes('批量导入') || allText.includes('import') || allText.includes('batch')) keywords.push('导入')
+          if (allText.includes('下一页') || allText.includes('上一页') || allText.includes('next') || allText.includes('prev') || allText.includes('page')) keywords.push('分页')
+
           return keywords
         }
 
-        // 辅助函数：生成唯一选择器
-        const getSelector = (el: Element): string => {
-          if (el.id) return `#${el.id}`
-          if (el.getAttribute('name')) return `[name="${el.getAttribute('name')}"]`
-          if (el.className && typeof el.className === 'string') {
-            const classes = el.className.trim().split(/\s+/).filter(c => c && !c.startsWith('el-')).slice(0, 2)
-            if (classes.length > 0) return `.${classes.join('.')}`
-          }
-          return el.tagName.toLowerCase()
-        }
-
-        // 辅助函数：检查元素是否可见
         const isVisible = (el: Element): boolean => {
           const style = window.getComputedStyle(el)
           const rect = el.getBoundingClientRect()
-          return style.display !== 'none' && 
-                 style.visibility !== 'hidden' && 
-                 style.opacity !== '0' &&
-                 rect.width > 0 && 
-                 rect.height > 0
+          return style.display !== 'none' &&
+            style.visibility !== 'hidden' &&
+            style.opacity !== '0' &&
+            rect.width > 0 &&
+            rect.height > 0
         }
 
-        // 1. 获取所有输入框
-        const inputs: any[] = []
-        document.querySelectorAll('input:not([type="hidden"]), textarea').forEach(el => {
-          if (!isVisible(el)) return
-          const input = el as HTMLInputElement
-          inputs.push({
-            type: input.type || 'text',
-            selector: getSelector(el),
-            id: input.id || '',
-            name: input.name || '',
-            placeholder: input.placeholder || '',
-            value: input.value || '',
-            disabled: input.disabled,
-            readonly: input.readOnly,
-            required: input.required,
-            label: document.querySelector(`label[for="${input.id}"]`)?.textContent?.trim() || ''
-          })
-        })
+        const buildNthPathSelector = (el: Element): string => {
+          const parts: string[] = []
+          let current: Element | null = el
+          let depth = 0
 
-        // 2. 获取所有下拉框
-        const selects: any[] = []
-        document.querySelectorAll('select').forEach(el => {
-          if (!isVisible(el)) return
-          const select = el as HTMLSelectElement
-          const options = Array.from(select.options).map(opt => ({
-            value: opt.value,
-            text: opt.text
-          }))
-          selects.push({
-            type: 'select',
-            selector: getSelector(el),
-            id: select.id || '',
-            name: select.name || '',
-            options: options.slice(0, 10), // 最多10个选项
-            disabled: select.disabled,
-            required: select.required,
-            label: document.querySelector(`label[for="${select.id}"]`)?.textContent?.trim() || ''
-          })
-        })
+          while (current && current.tagName && current.tagName.toLowerCase() !== 'html' && depth < 4) {
+            let part = current.tagName.toLowerCase()
+            const className = (current as HTMLElement).className
+            if (className && typeof className === 'string') {
+              const classes = className.trim().split(/\s+/).filter(Boolean).slice(0, 2)
+              if (classes.length > 0) {
+                part += `.${classes.join('.')}`
+              }
+            }
 
-        // 3. 获取所有按钮（包括各种框架的按钮）
-        const buttons: any[] = []
-        const buttonSelectors = [
-          'button',
-          'input[type="submit"]',
-          'input[type="button"]',
-          '[role="button"]',
-          '.el-button',           // Element UI
-          '.ant-btn',             // Ant Design
-          '.layui-btn',           // Layui
-          '.btn',                 // Bootstrap
-          '[lay-submit]',         // Layui submit
-          'a.btn',                // 链接按钮
-        ]
-        
-        const seenButtons = new Set<string>()
-        buttonSelectors.forEach(selector => {
-          document.querySelectorAll(selector).forEach(el => {
+            const parent = current.parentElement
+            if (parent) {
+              const siblings = Array.from(parent.children).filter(c => c.tagName === current!.tagName)
+              const index = siblings.indexOf(current) + 1
+              part += `:nth-of-type(${index})`
+            }
+
+            parts.unshift(part)
+            current = current.parentElement
+            depth++
+          }
+
+          return parts.join(' > ')
+        }
+
+        const buildSelector = (el: Element): string => {
+          const htmlEl = el as HTMLElement
+          const dataTestId = htmlEl.getAttribute('data-testid') || htmlEl.getAttribute('data-test')
+          if (dataTestId) {
+            const sel = `[data-testid="${dataTestId}"]`
+            if (document.querySelectorAll(sel).length === 1) return sel
+          }
+
+          if (htmlEl.id) return `#${htmlEl.id}`
+          const name = htmlEl.getAttribute('name')
+          if (name) {
+            const sel = `[name="${name}"]`
+            if (document.querySelectorAll(sel).length === 1) return sel
+          }
+
+          const className = htmlEl.className
+          if (className && typeof className === 'string') {
+            const classes = className.trim().split(/\s+/).filter(Boolean).slice(0, 3)
+            if (classes.length > 0) {
+              const sel = `.${classes.join('.')}`
+              if (document.querySelectorAll(sel).length === 1) return sel
+            }
+          }
+
+          const tagSel = htmlEl.tagName.toLowerCase()
+          if (document.querySelectorAll(tagSel).length === 1) return tagSel
+          return buildNthPathSelector(el)
+        }
+
+        const extractElements = (root: ParentNode) => {
+          const inputs: any[] = []
+          root.querySelectorAll('input:not([type="hidden"]), textarea').forEach(el => {
+            if (!isVisible(el)) return
+            const input = el as HTMLInputElement
+            inputs.push({
+              type: input.type || 'text',
+              selector: buildSelector(el),
+              id: input.id || '',
+              name: input.name || '',
+              placeholder: input.placeholder || '',
+              value: input.value || '',
+              disabled: input.disabled,
+              readonly: input.readOnly,
+              required: input.required,
+              className: (input as any).className || '',
+              visible: true,
+              label: document.querySelector(`label[for="${input.id}"]`)?.textContent?.trim() || ''
+            })
+          })
+
+          const selects: any[] = []
+          root.querySelectorAll('select').forEach(el => {
+            if (!isVisible(el)) return
+            const select = el as HTMLSelectElement
+            const options = Array.from(select.options).map(opt => ({
+              value: opt.value,
+              text: opt.text
+            }))
+            selects.push({
+              type: 'select',
+              selector: buildSelector(el),
+              id: select.id || '',
+              name: select.name || '',
+              options: options.slice(0, 10),
+              disabled: select.disabled,
+              required: select.required,
+              className: (select as any).className || '',
+              visible: true,
+              label: document.querySelector(`label[for="${select.id}"]`)?.textContent?.trim() || ''
+            })
+          })
+
+          const buttons: any[] = []
+          const buttonSelectors = [
+            'button',
+            'input[type="submit"]',
+            'input[type="button"]',
+            '[role="button"]',
+            '.el-button',
+            '.ant-btn',
+            '.layui-btn',
+            '.btn',
+            '[lay-submit]',
+            'a.btn'
+          ]
+
+          const seenButtons = new Set<string>()
+          buttonSelectors.forEach(selector => {
+            root.querySelectorAll(selector).forEach(el => {
+              if (!isVisible(el)) return
+              const text = el.textContent?.trim() || ''
+              const sel = buildSelector(el)
+              const key = `${sel}-${text}`
+              if (seenButtons.has(key)) return
+              seenButtons.add(key)
+
+              const className = (el as HTMLElement).className || ''
+              const title = el.getAttribute('title') || ''
+              const ariaLabel = el.getAttribute('aria-label') || ''
+              const disabled = (el as HTMLButtonElement).disabled || (el as HTMLElement).classList.contains('is-disabled') || (el as HTMLElement).classList.contains('disabled')
+
+              buttons.push({
+                type: 'button',
+                selector: sel,
+                text: text.substring(0, 50),
+                id: (el as HTMLElement).id || '',
+                name: el.getAttribute('name') || '',
+                className,
+                title,
+                ariaLabel,
+                disabled,
+                buttonType: el.getAttribute('type') || '',
+                visible: true,
+                keywords: extractFunctionalKeywords(text, className, title, ariaLabel)
+              })
+            })
+          })
+
+          const tables: any[] = []
+          root.querySelectorAll('table, .el-table, .ant-table').forEach((el, index) => {
+            if (!isVisible(el)) return
+            const headers: string[] = []
+            el.querySelectorAll('th, .el-table__header th').forEach(th => {
+              const text = th.textContent?.trim()
+              if (text) headers.push(text)
+            })
+            const rowCount = el.querySelectorAll('tbody tr, .el-table__body tr').length
+            tables.push({
+              index,
+              selector: buildSelector(el),
+              headers: headers.slice(0, 10),
+              rowCount
+            })
+          })
+
+          const forms: any[] = []
+          root.querySelectorAll('form, .el-form, .ant-form').forEach(el => {
+            if (!isVisible(el)) return
+            forms.push({
+              selector: buildSelector(el),
+              id: (el as HTMLElement).id || '',
+              action: el.getAttribute('action') || '',
+              method: el.getAttribute('method') || ''
+            })
+          })
+
+          const links: any[] = []
+          root.querySelectorAll('a[href], .el-menu-item, .ant-menu-item, .layui-nav-item').forEach(el => {
             if (!isVisible(el)) return
             const text = el.textContent?.trim() || ''
-            const key = `${getSelector(el)}-${text}`
-            if (seenButtons.has(key)) return
-            seenButtons.add(key)
-            
-            // 获取更多元素属性用于AI智能判断
-            const className = el.className || ''
-            const title = el.getAttribute('title') || ''
-            const ariaLabel = el.getAttribute('aria-label') || ''
-            const disabled = (el as HTMLButtonElement).disabled || el.classList.contains('is-disabled') || el.classList.contains('disabled')
-            
-            buttons.push({
-              type: 'button',
-              selector: getSelector(el),
-              text: text.substring(0, 50),
-              id: el.id || '',
-              name: el.getAttribute('name') || '',
-              className: className,
-              title: title,
-              ariaLabel: ariaLabel,
-              disabled: disabled,
-              buttonType: el.getAttribute('type') || '',
-                  // 添加功能关键词判断
-              keywords: extractFunctionalKeywords(text, className, title, ariaLabel)
+            if (!text || text.length > 30) return
+            links.push({
+              type: 'link',
+              selector: buildSelector(el),
+              text,
+              href: el.getAttribute('href') || ''
+            })
+          })
+
+          return {
+            inputs: inputs.slice(0, 50),
+            selects: selects.slice(0, 30),
+            buttons: buttons.slice(0, 80),
+            tables: tables.slice(0, 10),
+            forms: forms.slice(0, 10),
+            links: links.slice(0, 60)
+          }
+        }
+
+        const globalElements = extractElements(document)
+
+        const containerSelectors = [
+          'form',
+          '.el-form',
+          '.ant-form',
+          '.card',
+          '.el-card',
+          '.ant-card',
+          '.panel',
+          '.layui-layer',
+          '.modal',
+          '.dialog',
+          '.el-dialog',
+          '.ant-modal',
+          '.drawer',
+          '.el-drawer'
+        ]
+
+        const seenAreas = new Set<string>()
+        const areas: any[] = []
+        containerSelectors.forEach(sel => {
+          document.querySelectorAll(sel).forEach(container => {
+            if (!isVisible(container)) return
+            const containerSelector = buildSelector(container)
+            if (!containerSelector || seenAreas.has(containerSelector)) return
+            seenAreas.add(containerSelector)
+
+            const titleEl = (container as HTMLElement).querySelector('.title, .header, .el-dialog__title, .ant-modal-title, h1, h2, h3')
+            const description = titleEl?.textContent?.trim() || (container as HTMLElement).getAttribute('aria-label') || (container as HTMLElement).className || container.tagName
+            const areaElements = extractElements(container)
+            areas.push({
+              selector: containerSelector,
+              description: (description || '').toString().substring(0, 50),
+              elements: areaElements
             })
           })
         })
 
-        // 4. 获取表格信息（如果有）
-        const tables: any[] = []
-        document.querySelectorAll('table, .el-table, .ant-table').forEach((el, index) => {
-          if (!isVisible(el)) return
-          const headers: string[] = []
-          el.querySelectorAll('th, .el-table__header th').forEach(th => {
-            const text = th.textContent?.trim()
-            if (text) headers.push(text)
-          })
-          const rowCount = el.querySelectorAll('tbody tr, .el-table__body tr').length
-          tables.push({
-            index,
-            selector: getSelector(el),
-            headers: headers.slice(0, 10),
-            rowCount
-          })
-        })
-
-        // 5. 获取表单信息
-        const forms: any[] = []
-        document.querySelectorAll('form, .el-form, .ant-form').forEach(el => {
-          if (!isVisible(el)) return
-          forms.push({
-            selector: getSelector(el),
-            id: el.id || '',
-            action: el.getAttribute('action') || '',
-            method: el.getAttribute('method') || ''
-          })
-        })
-
-        // 6. 获取链接/导航菜单
-        const links: any[] = []
-        document.querySelectorAll('a[href], .el-menu-item, .ant-menu-item, .layui-nav-item').forEach(el => {
-          if (!isVisible(el)) return
-          const text = el.textContent?.trim() || ''
-          if (!text || text.length > 30) return
-          links.push({
-            type: 'link',
-            selector: getSelector(el),
-            text: text,
-            href: el.getAttribute('href') || ''
-          })
-        })
-
         return {
-          success: true,
-          data: elements
+          ...globalElements,
+          pageTitle: document.title,
+          pageUrl: window.location.href,
+          areas: areas.slice(0, 8)
         }
-      
+      })
 
       logMCP(`获取到元素: ${elements.inputs.length}个输入框, ${elements.selects.length}个下拉框, ${elements.buttons.length}个按钮, ${elements.tables.length}个表格`, tool, sessionId)
-      
+
       return { success: true, data: elements }
     } catch (error) {
       const errorMsg = error instanceof Error ? error.message : String(error)
@@ -1308,6 +1446,7 @@ export class MCPManager {
       
       const context = {
         elements: elementsResult.success ? elementsResult.data : null,
+        areas: elementsResult.success ? (elementsResult.data?.areas || []) : [],
         consoleErrors,
         apiResponses,
         failedRequests,
@@ -1316,6 +1455,7 @@ export class MCPManager {
           buttonCount: elementsResult.data?.buttons?.length || 0,
           selectCount: elementsResult.data?.selects?.length || 0,
           tableCount: elementsResult.data?.tables?.length || 0,
+          areaCount: elementsResult.data?.areas?.length || 0,
           errorCount: consoleErrors.length,
           apiCount: apiResponses.length,
           failedRequestCount: failedRequests.length
@@ -1328,6 +1468,26 @@ export class MCPManager {
     } catch (error) {
       const errorMsg = error instanceof Error ? error.message : String(error)
       logError('获取页面上下文失败', error as Error, 'mcpManager-getFullPageContext', sessionId)
+      return { success: false, error: errorMsg }
+    }
+  }
+
+  async getFocusedAreas(sessionId?: string): Promise<MCPResult> {
+    const tool = 'playwright'
+    try {
+      logMCP('获取聚焦区域...', tool, sessionId)
+      const elementsResult = await this.getPageInteractiveElements(sessionId)
+      
+      if (!elementsResult.success) {
+        return elementsResult
+      }
+      return {
+        success: true,
+        data: elementsResult.data?.areas || []
+      }
+    } catch (error) {
+      const errorMsg = error instanceof Error ? error.message : String(error)
+      logError('获取聚焦区域失败', error as Error, 'mcpManager-getFocusedAreas', sessionId)
       return { success: false, error: errorMsg }
     }
   }
@@ -1352,48 +1512,213 @@ export class MCPManager {
         const isVisible = (el: Element): boolean => {
           const style = window.getComputedStyle(el)
           const rect = el.getBoundingClientRect()
-          return style.display !== 'none' && 
-                 style.visibility !== 'hidden' && 
-                 rect.width > 0 && 
-                 rect.height > 0
+          return style.display !== 'none' &&
+            style.visibility !== 'hidden' &&
+            style.opacity !== '0' &&
+            rect.width > 0 &&
+            rect.height > 0
         }
 
-        const getSelector = (el: Element): string => {
-          if (el.id) return `#${el.id}`
-          if (el.getAttribute('name')) return `[name="${el.getAttribute('name')}"]`
-          return el.tagName.toLowerCase()
+        const buildNthPathSelector = (el: Element): string => {
+          const parts: string[] = []
+          let current: Element | null = el
+          let depth = 0
+
+          while (current && current.tagName && current.tagName.toLowerCase() !== 'html' && depth < 4) {
+            let part = current.tagName.toLowerCase()
+            const className = (current as HTMLElement).className
+            if (className && typeof className === 'string') {
+              const classes = className.trim().split(/\s+/).filter(Boolean).slice(0, 2)
+              if (classes.length > 0) {
+                part += `.${classes.join('.')}`
+              }
+            }
+
+            const parent = current.parentElement
+            if (parent) {
+              const siblings = Array.from(parent.children).filter(c => c.tagName === current!.tagName)
+              const index = siblings.indexOf(current) + 1
+              part += `:nth-of-type(${index})`
+            }
+
+            parts.unshift(part)
+            current = current.parentElement
+            depth++
+          }
+
+          return parts.join(' > ')
         }
 
-        const inputs: any[] = []
-        container.querySelectorAll('input:not([type="hidden"]), textarea, select').forEach(el => {
-          if (!isVisible(el)) return
-          const input = el as HTMLInputElement
-          inputs.push({
-            type: input.type || el.tagName.toLowerCase(),
-            selector: getSelector(el),
-            placeholder: input.placeholder || '',
-            label: document.querySelector(`label[for="${input.id}"]`)?.textContent?.trim() || ''
-          })
-        })
+        const buildSelector = (el: Element): string => {
+          const htmlEl = el as HTMLElement
+          const dataTestId = htmlEl.getAttribute('data-testid') || htmlEl.getAttribute('data-test')
+          if (dataTestId) {
+            const sel = `[data-testid="${dataTestId}"]`
+            if (document.querySelectorAll(sel).length === 1) return sel
+          }
 
-        const buttons: any[] = []
-        container.querySelectorAll('button, [role="button"], .el-button, .btn').forEach(el => {
-          if (!isVisible(el)) return
-          buttons.push({
-            type: 'button',
-            selector: getSelector(el),
-            text: el.textContent?.trim().substring(0, 30) || ''
-          })
-        })
+          if (htmlEl.id) return `#${htmlEl.id}`
+          const name = htmlEl.getAttribute('name')
+          if (name) {
+            const sel = `[name="${name}"]`
+            if (document.querySelectorAll(sel).length === 1) return sel
+          }
 
-        return { inputs, buttons }
+          const className = htmlEl.className
+          if (className && typeof className === 'string') {
+            const classes = className.trim().split(/\s+/).filter(Boolean).slice(0, 3)
+            if (classes.length > 0) {
+              const sel = `.${classes.join('.')}`
+              if (document.querySelectorAll(sel).length === 1) return sel
+            }
+          }
+
+          const tagSel = htmlEl.tagName.toLowerCase()
+          if (document.querySelectorAll(tagSel).length === 1) return tagSel
+          return buildNthPathSelector(el)
+        }
+
+        const extractElements = (root: ParentNode) => {
+          const inputs: any[] = []
+          root.querySelectorAll('input:not([type="hidden"]), textarea').forEach(el => {
+            if (!isVisible(el)) return
+            const input = el as HTMLInputElement
+            inputs.push({
+              type: input.type || 'text',
+              selector: buildSelector(el),
+              id: input.id || '',
+              name: input.name || '',
+              placeholder: input.placeholder || '',
+              value: input.value || '',
+              disabled: input.disabled,
+              readonly: input.readOnly,
+              required: input.required,
+              className: (input as any).className || '',
+              visible: true,
+              label: document.querySelector(`label[for="${input.id}"]`)?.textContent?.trim() || ''
+            })
+          })
+
+          const selects: any[] = []
+          root.querySelectorAll('select').forEach(el => {
+            if (!isVisible(el)) return
+            const select = el as HTMLSelectElement
+            const options = Array.from(select.options).map(opt => ({
+              value: opt.value,
+              text: opt.text
+            }))
+            selects.push({
+              type: 'select',
+              selector: buildSelector(el),
+              id: select.id || '',
+              name: select.name || '',
+              options: options.slice(0, 10),
+              disabled: select.disabled,
+              required: select.required,
+              className: (select as any).className || '',
+              visible: true,
+              label: document.querySelector(`label[for="${select.id}"]`)?.textContent?.trim() || ''
+            })
+          })
+
+          const buttons: any[] = []
+          const buttonSelectors = [
+            'button',
+            'input[type="submit"]',
+            'input[type="button"]',
+            '[role="button"]',
+            '.el-button',
+            '.ant-btn',
+            '.layui-btn',
+            '.btn',
+            '[lay-submit]',
+            'a.btn'
+          ]
+
+          const seen = new Set<string>()
+          buttonSelectors.forEach(sel => {
+            root.querySelectorAll(sel).forEach(el => {
+              if (!isVisible(el)) return
+              const text = el.textContent?.trim() || ''
+              const selectorStr = buildSelector(el)
+              const key = `${selectorStr}-${text}`
+              if (seen.has(key)) return
+              seen.add(key)
+              buttons.push({
+                type: 'button',
+                selector: selectorStr,
+                text: text.substring(0, 50),
+                id: (el as HTMLElement).id || '',
+                name: el.getAttribute('name') || '',
+                className: (el as HTMLElement).className || '',
+                title: el.getAttribute('title') || '',
+                ariaLabel: el.getAttribute('aria-label') || '',
+                disabled: (el as HTMLButtonElement).disabled || (el as HTMLElement).classList.contains('is-disabled') || (el as HTMLElement).classList.contains('disabled'),
+                buttonType: el.getAttribute('type') || '',
+                visible: true
+              })
+            })
+          })
+
+          const tables: any[] = []
+          root.querySelectorAll('table, .el-table, .ant-table').forEach((el, index) => {
+            if (!isVisible(el)) return
+            const headers: string[] = []
+            el.querySelectorAll('th, .el-table__header th').forEach(th => {
+              const text = th.textContent?.trim()
+              if (text) headers.push(text)
+            })
+            const rowCount = el.querySelectorAll('tbody tr, .el-table__body tr').length
+            tables.push({
+              index,
+              selector: buildSelector(el),
+              headers: headers.slice(0, 10),
+              rowCount
+            })
+          })
+
+          const forms: any[] = []
+          root.querySelectorAll('form, .el-form, .ant-form').forEach(el => {
+            if (!isVisible(el)) return
+            forms.push({
+              selector: buildSelector(el),
+              id: (el as HTMLElement).id || '',
+              action: el.getAttribute('action') || '',
+              method: el.getAttribute('method') || ''
+            })
+          })
+
+          const links: any[] = []
+          root.querySelectorAll('a[href], .el-menu-item, .ant-menu-item, .layui-nav-item').forEach(el => {
+            if (!isVisible(el)) return
+            const text = el.textContent?.trim() || ''
+            if (!text || text.length > 30) return
+            links.push({
+              type: 'link',
+              selector: buildSelector(el),
+              text,
+              href: el.getAttribute('href') || ''
+            })
+          })
+
+          return {
+            inputs: inputs.slice(0, 40),
+            selects: selects.slice(0, 20),
+            buttons: buttons.slice(0, 50),
+            tables: tables.slice(0, 5),
+            forms: forms.slice(0, 5),
+            links: links.slice(0, 30)
+          }
+        }
+
+        return extractElements(container)
       }, containerSelector)
 
       if (!elements) {
         return { success: false, error: `未找到容器: ${containerSelector}` }
       }
 
-      logMCP(`区域内获取到: ${elements.inputs.length}个输入框, ${elements.buttons.length}个按钮`, tool, sessionId)
+      logMCP(`区域内获取到: ${elements.inputs.length}个输入框, ${elements.selects.length}个下拉框, ${elements.buttons.length}个按钮`, tool, sessionId)
       return { success: true, data: elements }
     } catch (error) {
       const errorMsg = error instanceof Error ? error.message : String(error)
