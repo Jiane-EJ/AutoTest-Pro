@@ -312,21 +312,21 @@ export class SmartStepExecutor {
 
       // 步骤8：获取登录后的页面并验证
       logAI(`[步骤8] 验证登录成功...`, getModelName(), sessionId)
-      const afterLoginHtml = await mcpManager.callPlaywright(
-        'get_visible_html',
-        {},
-        sessionId
-      )
-
-      if (!afterLoginHtml.success) {
-        throw new Error('获取登录后页面失败')
+      const afterLoginContext = await mcpManager.getFullPageContext(sessionId)
+      if (!afterLoginContext.success || !afterLoginContext.data) {
+        throw new Error('获取登录后页面上下文失败')
       }
 
       const aiClient = getAIClient()
-      const loginVerification = await aiClient.analyzeLoginStatus(
-        afterLoginHtml.data || '',
-        sessionId
-      )
+
+      const statusHint = loginStatusResult.success ? loginStatusResult.data : null
+      const loginVerification = await aiClient.analyzeLoginStatusByContext({
+        url: statusHint?.url,
+        title: statusHint?.pageTitle,
+        summary: afterLoginContext.data?.summary,
+        statusHint,
+        elements: afterLoginContext.data?.elements
+      }, sessionId)
 
       if (!loginVerification.success) {
         throw new Error('登录验证失败')

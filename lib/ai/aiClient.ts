@@ -279,6 +279,61 @@ export class AIClient {
     }
   }
 
+  async analyzeLoginStatusByContext(
+    context: {
+      url?: string
+      title?: string
+      elements?: any
+      summary?: any
+      statusHint?: any
+    },
+    sessionId?: string
+  ): Promise<{ success: boolean; data: any }> {
+    const model = getModelForPurpose(this.provider, ModelPurpose.ANALYSIS)
+    try {
+      const elements = context?.elements || {}
+      const safeElements = {
+        pageTitle: elements?.pageTitle || context?.title || '',
+        pageUrl: elements?.pageUrl || context?.url || '',
+        inputs: Array.isArray(elements?.inputs) ? elements.inputs.slice(0, 20) : [],
+        selects: Array.isArray(elements?.selects) ? elements.selects.slice(0, 10) : [],
+        buttons: Array.isArray(elements?.buttons) ? elements.buttons.slice(0, 30) : [],
+        links: Array.isArray(elements?.links) ? elements.links.slice(0, 80) : [],
+        forms: Array.isArray(elements?.forms) ? elements.forms.slice(0, 10) : [],
+        tables: Array.isArray(elements?.tables) ? elements.tables.slice(0, 5) : []
+      }
+
+      const safeContext = {
+        url: context?.url || safeElements.pageUrl,
+        title: context?.title || safeElements.pageTitle,
+        summary: context?.summary || {},
+        statusHint: context?.statusHint || {},
+        elements: safeElements
+      }
+
+      const response = await this.chatCompletion({
+        model,
+        messages: [
+          {
+            role: 'system',
+            content: '你是一个专业的自动化测试AI助手。请基于MCP提供的结构化元素JSON判断是否登录成功，并提取所有可见的菜单和导航元素。严禁基于猜测输出不存在的selector。'
+          },
+          {
+            role: 'user',
+            content: `请基于以下结构化上下文判断登录状态并输出严格JSON：\n\n${JSON.stringify(safeContext)}\n\n输出格式(严格JSON):\n{\n  "isLoggedIn": true/false,\n  "confidence": 0-100,\n  "evidence": ["..."],\n  "menuItems": [{"text":"","selector":"","href":""}],\n  "analysis": ""\n}`
+          }
+        ],
+        temperature: 0.2,
+        max_tokens: 1200
+      }, sessionId)
+
+      return { success: true, data: { analysis: response } }
+    } catch (error) {
+      logError(`登录状态分析失败`, error instanceof Error ? error : new Error(String(error)), 'aiClient-analyzeLoginStatusByContext', sessionId)
+      throw error
+    }
+  }
+
   /**
    * 分析页面功能
    */
