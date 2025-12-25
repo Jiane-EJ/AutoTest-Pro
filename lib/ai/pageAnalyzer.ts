@@ -14,6 +14,18 @@ function getModelName(): string {
   }
 }
 
+/**
+ * 获取视觉模型名称（用于日志）
+ * @author Jiane
+ */
+function getVLModelName(): string {
+  try {
+    return getAIClient().getVLModelName()
+  } catch {
+    return 'vl-model'
+  }
+}
+
 export interface PageElement {
   type: string
   selector: string
@@ -203,6 +215,154 @@ ${JSON.stringify(elements.buttons, null, 2)}
         inputs: [],
         buttons: [],
         forms: [],
+        analysis: '',
+        error: errorMsg
+      }
+    }
+  }
+
+  /**
+   * 使用视觉模型分析登录页面（截图+元素）
+   * @author Jiane
+   */
+  async analyzeLoginPageWithVision(sessionId?: string): Promise<PageAnalysisResult> {
+    try {
+      logAI('开始使用视觉模型分析登录页面...', getVLModelName(), sessionId)
+
+      // 1. 获取视觉上下文（截图+元素）
+      logMCP('[视觉分析] 获取页面截图和元素...', 'playwright', sessionId)
+      const visualContext = await mcpManager.getVisualPageContext(sessionId)
+      
+      if (!visualContext.success || !visualContext.data) {
+        logAI('获取视觉上下文失败，回退到普通分析', getModelName(), sessionId)
+        const pageHtmlResult = await mcpManager.callPlaywright('get_visible_html', {}, sessionId)
+        return this.analyzePageForLogin(pageHtmlResult.data || '', sessionId)
+      }
+
+      const { screenshot, elements } = visualContext.data
+
+      // 2. 调用视觉模型分析
+      logAI(`[视觉分析] 截图大小: ${(screenshot.size / 1024).toFixed(2)}KB, 元素: ${elements.inputs?.length || 0}输入框, ${elements.buttons?.length || 0}按钮`, getVLModelName(), sessionId)
+      
+      const aiClient = getAIClient()
+      const aiAnalysis = await aiClient.analyzeLoginPageWithVision(
+        screenshot.base64,
+        screenshot.mimeType,
+        elements,
+        sessionId
+      )
+
+      logAI(`[视觉分析] 登录页面分析完成: ${aiAnalysis.substring(0, 200)}...`, getVLModelName(), sessionId)
+
+      return {
+        success: true,
+        inputs: elements.inputs || [],
+        buttons: elements.buttons || [],
+        forms: elements.forms || [],
+        analysis: aiAnalysis
+      }
+    } catch (error) {
+      const errorMsg = error instanceof Error ? error.message : String(error)
+      logError('视觉分析登录页面失败', error as Error, 'pageAnalyzer-analyzeLoginPageWithVision', sessionId)
+      return {
+        success: false,
+        inputs: [],
+        buttons: [],
+        forms: [],
+        analysis: '',
+        error: errorMsg
+      }
+    }
+  }
+
+  /**
+   * 使用视觉模型分析页面功能（截图+元素）
+   * @author Jiane
+   */
+  async analyzePageFunctionalityWithVision(
+    requirement: string,
+    sessionId?: string,
+    depth: number = 0
+  ): Promise<{
+    success: boolean
+    testSteps: any[]
+    analysis: string
+    elements?: PageElements
+    screenshot?: any
+    error?: string
+  }> {
+    try {
+      logAI('开始使用视觉模型分析页面功能...', getVLModelName(), sessionId)
+
+      // 1. 获取视觉上下文（截图+元素）
+      logMCP('[视觉分析] 获取页面截图和元素...', 'playwright', sessionId)
+      const visualContext = await mcpManager.getVisualPageContext(sessionId)
+      
+      if (!visualContext.success || !visualContext.data) {
+        logAI('获取视觉上下文失败，回退到普通分析', getModelName(), sessionId)
+        return this.analyzePageFunctionality('', requirement, sessionId, depth)
+      }
+
+      const { screenshot, elements } = visualContext.data
+
+      // 2. 调用视觉模型分析
+      logAI(`[视觉分析] 截图大小: ${(screenshot.size / 1024).toFixed(2)}KB`, getVLModelName(), sessionId)
+      logAI(`[视觉分析] 元素统计: ${elements.inputs?.length || 0}输入框, ${elements.buttons?.length || 0}按钮, ${elements.selects?.length || 0}下拉框, ${elements.tables?.length || 0}表格`, getVLModelName(), sessionId)
+      
+      const aiClient = getAIClient()
+      const aiAnalysis = await aiClient.analyzePageWithVision(
+        screenshot.base64,
+        screenshot.mimeType,
+        elements,
+        requirement,
+        sessionId
+      )
+
+      logAI(`[视觉分析] 页面功能分析完成: ${aiAnalysis.substring(0, 300)}...`, getVLModelName(), sessionId)
+
+      // 3. 解析测试步骤
+      let testSteps: any[] = []
+      try {
+        const jsonMatch = aiAnalysis.match(/\{[\s\S]*\}/)
+        if (jsonMatch) {
+          const parsed = JSON.parse(jsonMatch[0])
+          testSteps = parsed.testSteps || []
+        }
+      } catch (e) {
+        logAI('解析AI返回的JSON失败，返回原始分析结果', getVLModelName(), sessionId)
+      }
+
+      // 4. 严格验证选择器
+      const validSelectorSet = new Set<string>()
+      ;(elements.inputs || []).forEach((el: any) => validSelectorSet.add(el.selector))
+      ;(elements.selects || []).forEach((el: any) => validSelectorSet.add(el.selector))
+      ;(elements.buttons || []).forEach((el: any) => validSelectorSet.add(el.selector))
+
+      const rawCount = testSteps.length
+      testSteps = testSteps.filter((step: any) => {
+        const selector = step?.selector
+        if (!selector || typeof selector !== 'string') return false
+        const isValid = validSelectorSet.has(selector)
+        if (!isValid) {
+          logAI(`⚠️ 选择器无效，已过滤: ${selector}`, getVLModelName(), sessionId)
+        }
+        return isValid
+      })
+      logAI(`✅ 选择器验证通过 ${testSteps.length}/${rawCount} 个测试步骤`, getVLModelName(), sessionId)
+
+      return {
+        success: true,
+        testSteps,
+        analysis: aiAnalysis,
+        elements,
+        screenshot
+      }
+    } catch (error) {
+      const errorMsg = error instanceof Error ? error.message : String(error)
+      logError('视觉分析页面功能失败', error as Error, 'pageAnalyzer-analyzePageFunctionalityWithVision', sessionId)
+      return {
+        success: false,
+        testSteps: [],
         analysis: '',
         error: errorMsg
       }

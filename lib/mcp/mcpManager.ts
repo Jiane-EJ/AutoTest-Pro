@@ -1727,6 +1727,109 @@ export class MCPManager {
     }
   }
 
+  /**
+   * 截取当前页面截图
+   * @param options 截图选项
+   * @returns base64编码的图片数据
+   * @author Jiane
+   */
+  async takeScreenshot(options?: {
+    fullPage?: boolean      // 是否截取整个页面（包括滚动区域）
+    selector?: string       // 只截取指定元素
+    quality?: number        // 图片质量 0-100 (仅jpeg)
+    type?: 'png' | 'jpeg'   // 图片格式
+  }, sessionId?: string): Promise<MCPResult> {
+    const tool = 'playwright'
+    try {
+      if (!this.page) {
+        return { success: false, error: '浏览器未初始化' }
+      }
+
+      logMCP('截取页面截图...', tool, sessionId)
+
+      const screenshotOptions: any = {
+        type: options?.type || 'png',
+        fullPage: options?.fullPage || false
+      }
+
+      if (options?.type === 'jpeg' && options?.quality) {
+        screenshotOptions.quality = options.quality
+      }
+
+      let screenshotBuffer: Buffer
+
+      if (options?.selector) {
+        // 截取指定元素
+        const element = this.page.locator(options.selector)
+        screenshotBuffer = await element.screenshot(screenshotOptions)
+        logMCP(`已截取元素 [${options.selector}] 的截图`, tool, sessionId)
+      } else {
+        // 截取整个页面
+        screenshotBuffer = await this.page.screenshot(screenshotOptions)
+        logMCP(`已截取${options?.fullPage ? '完整' : '可视区域'}页面截图`, tool, sessionId)
+      }
+
+      // 转换为base64
+      const base64Image = screenshotBuffer.toString('base64')
+      const mimeType = options?.type === 'jpeg' ? 'image/jpeg' : 'image/png'
+
+      logMCP(`截图完成，大小: ${(screenshotBuffer.length / 1024).toFixed(2)}KB`, tool, sessionId)
+
+      return {
+        success: true,
+        data: {
+          base64: base64Image,
+          mimeType: mimeType,
+          size: screenshotBuffer.length,
+          url: this.page.url(),
+          title: await this.page.title()
+        }
+      }
+    } catch (error) {
+      const errorMsg = error instanceof Error ? error.message : String(error)
+      logError('截图失败', error as Error, 'mcpManager-takeScreenshot', sessionId)
+      return { success: false, error: errorMsg }
+    }
+  }
+
+  /**
+   * 获取页面截图 + 元素信息的完整上下文（用于视觉模型分析）
+   * @author Jiane
+   */
+  async getVisualPageContext(sessionId?: string): Promise<MCPResult> {
+    const tool = 'playwright'
+    try {
+      logMCP('获取视觉页面上下文（截图+元素）...', tool, sessionId)
+
+      // 1. 截取页面截图
+      const screenshotResult = await this.takeScreenshot({ fullPage: false }, sessionId)
+      if (!screenshotResult.success) {
+        return { success: false, error: `截图失败: ${screenshotResult.error}` }
+      }
+
+      // 2. 获取页面元素
+      const elementsResult = await this.getPageInteractiveElements(sessionId)
+      if (!elementsResult.success) {
+        return { success: false, error: `获取元素失败: ${elementsResult.error}` }
+      }
+
+      // 3. 组合返回
+      const context = {
+        screenshot: screenshotResult.data,
+        elements: elementsResult.data,
+        timestamp: Date.now()
+      }
+
+      logMCP(`视觉上下文获取完成: 截图${(screenshotResult.data.size / 1024).toFixed(2)}KB, ${elementsResult.data.inputs?.length || 0}个输入框, ${elementsResult.data.buttons?.length || 0}个按钮`, tool, sessionId)
+
+      return { success: true, data: context }
+    } catch (error) {
+      const errorMsg = error instanceof Error ? error.message : String(error)
+      logError('获取视觉页面上下文失败', error as Error, 'mcpManager-getVisualPageContext', sessionId)
+      return { success: false, error: errorMsg }
+    }
+  }
+
   // 清理所有MCP进程和浏览器
   async cleanup() {
     const tool = 'playwright'

@@ -634,6 +634,250 @@ ${errorInfo || ''}
   }
 
   /**
+   * 使用视觉模型分析页面截图
+   * 结合截图和元素信息，让AI更准确地理解页面
+   * @author Jiane
+   */
+  async analyzePageWithVision(
+    screenshotBase64: string,
+    mimeType: string,
+    elements: any,
+    requirement: string,
+    sessionId?: string
+  ): Promise<string> {
+    const vlModel = this.config.vlModel
+    const startTime = Date.now()
+
+    try {
+      logAI(`[视觉分析] 使用 ${vlModel} 分析页面截图...`, vlModel, sessionId)
+
+      // 构建元素摘要信息
+      const elementsSummary = {
+        pageTitle: elements?.pageTitle || '未知',
+        pageUrl: elements?.pageUrl || '未知',
+        inputCount: elements?.inputs?.length || 0,
+        buttonCount: elements?.buttons?.length || 0,
+        selectCount: elements?.selects?.length || 0,
+        tableCount: elements?.tables?.length || 0,
+        inputs: (elements?.inputs || []).slice(0, 15).map((i: any) => ({
+          selector: i.selector,
+          type: i.type,
+          placeholder: i.placeholder,
+          name: i.name
+        })),
+        buttons: (elements?.buttons || []).slice(0, 20).map((b: any) => ({
+          selector: b.selector,
+          text: b.text?.substring(0, 20),
+          keywords: b.keywords
+        })),
+        selects: (elements?.selects || []).slice(0, 10).map((s: any) => ({
+          selector: s.selector,
+          options: s.options?.slice(0, 5)
+        }))
+      }
+
+      const analysisPrompt = `你是一个专业的Web页面分析专家。请结合页面截图和MCP获取的元素信息，分析这个页面的功能和布局。
+
+## 测试需求
+${requirement}
+
+## MCP获取的页面元素信息
+${JSON.stringify(elementsSummary, null, 2)}
+
+## 分析任务
+1. 观察截图，描述页面的整体布局和主要功能区域
+2. 结合元素信息，识别页面上的关键交互元素（输入框、按钮、表格等）
+3. 根据测试需求，规划测试步骤
+
+## 输出格式（严格JSON）
+{
+  "pageDescription": "页面整体描述",
+  "functionalAreas": [
+    {
+      "name": "区域名称",
+      "description": "区域功能描述",
+      "elements": ["相关元素selector"]
+    }
+  ],
+  "testSteps": [
+    {
+      "action": "fill/click/select/wait/verify",
+      "selector": "必须使用MCP返回的真实selector",
+      "value": "操作值（如需要）",
+      "description": "步骤描述"
+    }
+  ],
+  "analysis": "综合分析结论"
+}
+
+注意：
+1. selector必须从MCP元素信息中选择，不能自己编造
+2. 测试步骤要符合用户实际操作流程
+3. 结合截图观察到的视觉信息和MCP获取的元素信息进行综合判断`
+
+      // 构建视觉模型请求（OpenAI兼容格式）
+      const response = await fetch(`${this.config.apiUrl}/chat/completions`, {
+        method: 'POST',
+        headers: {
+          'Authorization': `Bearer ${this.config.apiKey}`,
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          model: vlModel,
+          messages: [
+            {
+              role: 'user',
+              content: [
+                {
+                  type: 'image_url',
+                  image_url: {
+                    url: `data:${mimeType};base64,${screenshotBase64}`
+                  }
+                },
+                {
+                  type: 'text',
+                  text: analysisPrompt
+                }
+              ]
+            }
+          ],
+          temperature: 0.3,
+          max_tokens: 2500
+        })
+      })
+
+      if (!response.ok) {
+        const errorText = await response.text()
+        throw new Error(`视觉模型API错误: ${response.status} - ${errorText}`)
+      }
+
+      const data: AIResponse = await response.json()
+      const result = data.choices?.[0]?.message?.content
+
+      if (!result) {
+        throw new Error('视觉模型返回空响应')
+      }
+
+      const duration = Date.now() - startTime
+      const tokens = data.usage?.total_tokens || 0
+      logAI(`[视觉分析] 完成(${duration}ms, ${tokens}tokens): ${result.substring(0, 150)}...`, vlModel, sessionId)
+
+      return result
+
+    } catch (error) {
+      const errorMsg = error instanceof Error ? error.message : String(error)
+      logError(`视觉模型分析失败: ${errorMsg}`, error instanceof Error ? error : new Error(errorMsg), 'aiClient-analyzePageWithVision', sessionId)
+      throw error
+    }
+  }
+
+  /**
+   * 使用视觉模型分析登录页面
+   * @author Jiane
+   */
+  async analyzeLoginPageWithVision(
+    screenshotBase64: string,
+    mimeType: string,
+    elements: any,
+    sessionId?: string
+  ): Promise<string> {
+    const vlModel = this.config.vlModel
+
+    try {
+      logAI(`[视觉分析] 分析登录页面...`, vlModel, sessionId)
+
+      const elementsSummary = {
+        inputs: (elements?.inputs || []).map((i: any) => ({
+          selector: i.selector,
+          type: i.type,
+          placeholder: i.placeholder,
+          name: i.name,
+          id: i.id
+        })),
+        buttons: (elements?.buttons || []).map((b: any) => ({
+          selector: b.selector,
+          text: b.text,
+          id: b.id
+        }))
+      }
+
+      const analysisPrompt = `你是一个专业的Web自动化测试专家。请分析这个登录页面的截图，结合MCP获取的元素信息，识别登录表单的各个字段。
+
+## MCP获取的页面元素
+${JSON.stringify(elementsSummary, null, 2)}
+
+## 分析任务
+1. 观察截图，识别用户名/账号输入框
+2. 识别密码输入框
+3. 识别登录按钮
+4. 识别是否有验证码、记住密码等其他元素
+
+## 输出格式（严格JSON）
+{
+  "usernameSelector": "用户名输入框的selector（从MCP元素中选择）",
+  "passwordSelector": "密码输入框的selector（从MCP元素中选择）",
+  "loginButtonSelector": "登录按钮的selector（从MCP元素中选择）",
+  "hasCaptcha": true/false,
+  "hasRememberMe": true/false,
+  "otherElements": ["其他重要元素"],
+  "notes": "备注信息"
+}
+
+注意：所有selector必须从MCP元素信息中选择，不能自己编造！`
+
+      const response = await fetch(`${this.config.apiUrl}/chat/completions`, {
+        method: 'POST',
+        headers: {
+          'Authorization': `Bearer ${this.config.apiKey}`,
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          model: vlModel,
+          messages: [
+            {
+              role: 'user',
+              content: [
+                {
+                  type: 'image_url',
+                  image_url: {
+                    url: `data:${mimeType};base64,${screenshotBase64}`
+                  }
+                },
+                {
+                  type: 'text',
+                  text: analysisPrompt
+                }
+              ]
+            }
+          ],
+          temperature: 0.2,
+          max_tokens: 1000
+        })
+      })
+
+      if (!response.ok) {
+        const errorText = await response.text()
+        throw new Error(`视觉模型API错误: ${response.status} - ${errorText}`)
+      }
+
+      const data: AIResponse = await response.json()
+      const result = data.choices?.[0]?.message?.content
+
+      if (!result) {
+        throw new Error('视觉模型返回空响应')
+      }
+
+      logAI(`[视觉分析] 登录页面分析完成: ${result.substring(0, 150)}...`, vlModel, sessionId)
+      return result
+
+    } catch (error) {
+      const errorMsg = error instanceof Error ? error.message : String(error)
+      logError(`登录页面视觉分析失败: ${errorMsg}`, error instanceof Error ? error : new Error(errorMsg), 'aiClient-analyzeLoginPageWithVision', sessionId)
+      throw error
+    }
+  }
+
+  /**
    * 生成补救步骤 - 当测试步骤失败时调用
    * @author Jiane
    */
