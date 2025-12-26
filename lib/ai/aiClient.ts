@@ -72,11 +72,11 @@ export enum ModelPurpose {
 function getModelForPurpose(provider: AIProvider, purpose: ModelPurpose): string {
   const modelMap: Record<AIProvider, Record<ModelPurpose, string>> = {
     qwen: {
-      [ModelPurpose.CHAT]: process.env.QWEN_MODEL || '',
-      [ModelPurpose.ANALYSIS]: process.env.QWEN_MODEL || '',
-      [ModelPurpose.TEST_GEN]: process.env.QWEN_MODEL || '',
-      [ModelPurpose.REPORT]: process.env.QWEN_MODEL || '',
-      [ModelPurpose.VL]: process.env.QWEN_MODEL || ''
+      [ModelPurpose.CHAT]: process.env.QWEN_VL_MODEL || '',
+      [ModelPurpose.ANALYSIS]: process.env.QWEN_VL_MODEL || '',
+      [ModelPurpose.TEST_GEN]: process.env.QWEN_VL_MODEL || '',
+      [ModelPurpose.REPORT]: process.env.QWEN_VL_MODEL || '',
+      [ModelPurpose.VL]: process.env.QWEN_VL_MODEL || ''
     },
     doubao: {
       [ModelPurpose.CHAT]: process.env.DOUBAO_MODEL || '',
@@ -124,7 +124,7 @@ export class AIClient {
     return {
       apiKey: process.env.QWEN_API_KEY || '',
       apiUrl: process.env.QWEN_API_URL || 'https://dashscope.aliyuncs.com/compatible-mode/v1',
-      model: process.env.QWEN_MODEL || '',
+      model: process.env.QWEN_VL_MODEL || '',
       vlModel: process.env.QWEN_VL_MODEL || 'qwen3-vl-plus',
       name: '通义千问'
     }
