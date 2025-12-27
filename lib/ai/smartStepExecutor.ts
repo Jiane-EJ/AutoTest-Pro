@@ -68,15 +68,18 @@ export class SmartStepExecutor {
 
       const pageHtml = pageHtmlResult.data || ''
 
-      // 步骤2：AI分析页面结构，获取正确的选择器
-      logAI(`[步骤2] AI分析页面结构...`, getModelName(), sessionId)
-      const analysisResult = await pageAnalyzer.analyzePageForLogin(
-        pageHtml,
-        sessionId
-      )
+      // 步骤2：使用视觉模型分析登录页面结构（截图+元素）
+      logAI(`[步骤2] 使用视觉模型分析登录页面...`, getModelName(), sessionId)
+      const analysisResult = await pageAnalyzer.analyzeLoginPageWithVision(sessionId)
 
       if (!analysisResult.success) {
-        throw new Error('页面分析失败')
+        logAI(`视觉分析失败，回退到普通分析...`, getModelName(), sessionId)
+        // 回退到普通分析
+        const fallbackResult = await pageAnalyzer.analyzePageForLogin(pageHtml, sessionId)
+        if (!fallbackResult.success) {
+          throw new Error('页面分析失败')
+        }
+        Object.assign(analysisResult, fallbackResult)
       }
 
       logAI(`页面分析结果: ${analysisResult.analysis}`, getModelName(), sessionId)
@@ -264,7 +267,43 @@ export class SmartStepExecutor {
       if (sliderCheckResult.success && sliderCheckResult.data?.hasSlider) {
         logAI(`[警告] 检测到滑块验证码 (${sliderCheckResult.data.type})，需要手动完成验证`, getModelName(), sessionId)
         logSystem(`检测到滑块验证码，等待用户手动完成...`, 'smartStepExecutor-executeLoginFlow', sessionId)
-        await new Promise(resolve => setTimeout(resolve, 10000))
+        
+        // 轮询检测验证码是否消失，最多等待60秒
+        const maxWaitTime = 60000
+        const pollInterval = 2000
+        let waitedTime = 0
+        
+        while (waitedTime < maxWaitTime) {
+          await new Promise(resolve => setTimeout(resolve, pollInterval))
+          waitedTime += pollInterval
+          
+          const checkResult = await mcpManager.callPlaywright(
+            'evaluate',
+            {
+              script: `
+                (function() {
+                  const ncSlider = document.querySelector('#nc_1_n1z, .nc_wrapper, .nc-container, #nc');
+                  const captcha = document.querySelector('.captcha, .verify-wrap, .geetest_holder');
+                  const sliderVisible = ncSlider && ncSlider.offsetParent !== null;
+                  const captchaVisible = captcha && captcha.offsetParent !== null;
+                  return { hasSlider: sliderVisible || captchaVisible };
+                })()
+              `
+            },
+            sessionId
+          )
+          
+          if (!checkResult.success || !checkResult.data?.hasSlider) {
+            logAI(`[步骤6] 滑块验证码已完成或消失`, getModelName(), sessionId)
+            break
+          }
+          
+          logAI(`[步骤6] 等待滑块验证完成... (${waitedTime / 1000}s/${maxWaitTime / 1000}s)`, getModelName(), sessionId)
+        }
+        
+        if (waitedTime >= maxWaitTime) {
+          logAI(`[警告] 滑块验证码等待超时，继续执行...`, getModelName(), sessionId)
+        }
       } else {
         logAI(`[步骤6] 未检测到滑块验证码，等待页面跳转...`, getModelName(), sessionId)
         await new Promise(resolve => setTimeout(resolve, 3000))
@@ -436,12 +475,14 @@ export class SmartStepExecutor {
         case 'verify':
         case 'check':
           logMCP(`验证元素: ${selector}`, 'playwright', sessionId)
+          // 使用 JSON.stringify 转义 selector，防止注入风险
+          const safeSelector = JSON.stringify(selector)
           const verifyResult = await mcpManager.callPlaywright(
             'evaluate',
             {
               script: `
                 (function() {
-                  const el = document.querySelector('${selector}');
+                  const el = document.querySelector(${safeSelector});
                   if (!el) return { found: false };
                   return {
                     found: true,
@@ -495,13 +536,23 @@ export class SmartStepExecutor {
     try {
       logSystem(`开始执行页面功能测试`, 'smartStepExecutor-executePageFunctionalityTest', sessionId)
 
-      logAI(`[步骤1] MCP获取页面元素 + AI分析...`, getModelName(), sessionId)
+      // 步骤1：使用视觉模型分析页面功能（截图+元素）
+      logAI(`[步骤1] 使用视觉模型分析页面功能...`, getModelName(), sessionId)
       
-      const analysisResult = await pageAnalyzer.analyzePageFunctionality(
-        '',
+      let analysisResult = await pageAnalyzer.analyzePageFunctionalityWithVision(
         requirement,
         sessionId
       )
+
+      // 如果视觉分析失败，回退到普通分析
+      if (!analysisResult.success) {
+        logAI(`视觉分析失败，回退到普通分析...`, getModelName(), sessionId)
+        analysisResult = await pageAnalyzer.analyzePageFunctionality(
+          '',
+          requirement,
+          sessionId
+        )
+      }
 
       if (!analysisResult.success) {
         throw new Error('页面功能分析失败: ' + (analysisResult.error || '未知错误'))
@@ -510,6 +561,11 @@ export class SmartStepExecutor {
       if (analysisResult.elements) {
         const e = analysisResult.elements
         logAI(`[元素统计] 输入框:${e.inputs.length} 下拉框:${e.selects.length} 按钮:${e.buttons.length} 表格:${e.tables.length}`, getModelName(), sessionId)
+      }
+
+      // 如果有截图信息，记录日志
+      if (analysisResult.screenshot) {
+        logAI(`[视觉分析] 已使用截图辅助分析，截图大小: ${(analysisResult.screenshot.size / 1024).toFixed(2)}KB`, getModelName(), sessionId)
       }
 
       logAI(`[步骤2] AI分析完成，生成了 ${analysisResult.testSteps.length} 个测试步骤`, getModelName(), sessionId)
@@ -567,13 +623,24 @@ export class SmartStepExecutor {
 
           if (currentDepth < maxDepth) {
             currentDepth++
-            logAI(`第${i + 1}步失败，触发第${currentDepth + 1}轮聚焦分析`, getModelName(), sessionId)
-            const refocusedAnalysis = await pageAnalyzer.analyzePageFunctionality(
-              '',
+            logAI(`第${i + 1}步失败，触发第${currentDepth + 1}轮视觉聚焦分析`, getModelName(), sessionId)
+            
+            // 优先使用视觉模型进行聚焦分析
+            let refocusedAnalysis = await pageAnalyzer.analyzePageFunctionalityWithVision(
               requirement,
               sessionId,
               currentDepth
             )
+            
+            // 如果视觉分析失败，回退到普通分析
+            if (!refocusedAnalysis.success) {
+              refocusedAnalysis = await pageAnalyzer.analyzePageFunctionality(
+                '',
+                requirement,
+                sessionId,
+                currentDepth
+              )
+            }
 
             if (refocusedAnalysis.success && (refocusedAnalysis.testSteps || []).length > 0) {
               const newSteps = refocusedAnalysis.testSteps

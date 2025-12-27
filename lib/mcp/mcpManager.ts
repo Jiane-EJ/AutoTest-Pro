@@ -152,10 +152,11 @@ export class MCPManager {
         entry.responseHeaders = response.headers()
         entry.duration = Date.now() - entry.timestamp
         
-        // 尝试获取响应体（只获取JSON类型）
+        // 尝试获取响应体（只获取JSON类型，支持所有成功状态码）
         try {
           const contentType = response.headers()['content-type'] || ''
-          if (contentType.includes('application/json') && response.status() === 200) {
+          const status = response.status()
+          if (contentType.includes('application/json') && status >= 200 && status < 300) {
             const body = await response.json().catch(() => null)
             if (body) {
               entry.responseBody = body

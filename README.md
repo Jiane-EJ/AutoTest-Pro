@@ -41,6 +41,7 @@
 
 ```bash
 npm install
+npx playwright install
 ```
 
 ### 环境配置

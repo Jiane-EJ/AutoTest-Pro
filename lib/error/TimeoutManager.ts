@@ -143,10 +143,10 @@ export class TimeoutManager {
 
   // 检查操作是否即将超时
   isOperationNearTimeout(operationName: string, threshold: number = 5000): boolean {
-    for (const [timeoutId, warningTime] of Array.from(this.warnings.entries())) {
+    // 检查是否有该操作的警告定时器正在运行
+    for (const [timeoutId] of Array.from(this.warningTimers.entries())) {
       if (timeoutId.startsWith(operationName)) {
-        const timeSinceWarning = Date.now() - warningTime.getTime()
-        return timeSinceWarning > (threshold - 2000) // 提前2秒警告
+        return true // 如果警告定时器存在，说明操作正在执行中
       }
     }
     return false

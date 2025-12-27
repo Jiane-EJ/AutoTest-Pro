@@ -74,6 +74,89 @@ export interface PageAnalysisResult {
 }
 
 /**
+ * 从AI响应中提取JSON对象（健壮版本）
+ * @author Jiane
+ */
+function extractJSONFromText(text: string): any | null {
+  if (!text || typeof text !== 'string') return null
+  
+  const patterns = [
+    /```json\s*([\s\S]*?)\s*```/,  // markdown json code block
+    /```\s*([\s\S]*?)\s*```/,       // markdown code block
+    /\{[\s\S]*\}/                   // raw JSON
+  ]
+  
+  for (const pattern of patterns) {
+    const match = text.match(pattern)
+    if (match) {
+      const jsonStr = match[1] || match[0]
+      try {
+        return JSON.parse(jsonStr)
+      } catch {
+        // 尝试修复常见的JSON格式问题
+        try {
+          const fixed = jsonStr
+            .replace(/,\s*}/g, '}')      // 移除尾随逗号
+            .replace(/,\s*]/g, ']')      // 移除数组尾随逗号
+            .replace(/'/g, '"')          // 单引号转双引号
+          return JSON.parse(fixed)
+        } catch {
+          continue
+        }
+      }
+    }
+  }
+  return null
+}
+
+/**
+ * 验证测试步骤中的选择器是否有效
+ * @author Jiane
+ */
+function validateTestStepSelectors(
+  testSteps: any[],
+  validSelectorSet: Set<string>,
+  sessionId?: string
+): any[] {
+  if (!Array.isArray(testSteps)) return []
+  
+  const rawCount = testSteps.length
+  const validSteps = testSteps.filter((step: any) => {
+    const selector = step?.selector
+    if (!selector || typeof selector !== 'string') return false
+    const isValid = validSelectorSet.has(selector)
+    if (!isValid) {
+      logAI(`⚠️ 选择器无效，已过滤: ${selector}`, getModelName(), sessionId)
+    }
+    return isValid
+  })
+  
+  logAI(`✅ 选择器验证通过 ${validSteps.length}/${rawCount} 个测试步骤`, getModelName(), sessionId)
+  return validSteps
+}
+
+/**
+ * 从页面元素构建有效选择器集合
+ * @author Jiane
+ */
+function buildValidSelectorSet(elements: PageElements, areas?: PageArea[]): Set<string> {
+  const validSelectorSet = new Set<string>()
+  
+  ;(elements.inputs || []).forEach(el => validSelectorSet.add(el.selector))
+  ;(elements.selects || []).forEach(el => validSelectorSet.add(el.selector))
+  ;(elements.buttons || []).forEach(el => validSelectorSet.add(el.selector))
+  
+  // 添加区域内的选择器
+  ;(areas || []).forEach(area => {
+    ;(area.elements?.inputs || []).forEach(el => validSelectorSet.add(el.selector))
+    ;(area.elements?.selects || []).forEach(el => validSelectorSet.add(el.selector))
+    ;(area.elements?.buttons || []).forEach(el => validSelectorSet.add(el.selector))
+  })
+  
+  return validSelectorSet
+}
+
+/**
  * 页面分析器 - 通过MCP获取真实DOM元素，AI分析生成测试步骤
  * @author Jiane
  */
@@ -320,35 +403,18 @@ ${JSON.stringify(elements.buttons, null, 2)}
 
       logAI(`[视觉分析] 页面功能分析完成: ${aiAnalysis.substring(0, 300)}...`, getVLModelName(), sessionId)
 
-      // 3. 解析测试步骤
+      // 3. 解析测试步骤（使用健壮的JSON提取）
       let testSteps: any[] = []
-      try {
-        const jsonMatch = aiAnalysis.match(/\{[\s\S]*\}/)
-        if (jsonMatch) {
-          const parsed = JSON.parse(jsonMatch[0])
-          testSteps = parsed.testSteps || []
-        }
-      } catch (e) {
+      const parsed = extractJSONFromText(aiAnalysis)
+      if (parsed) {
+        testSteps = parsed.testSteps || []
+      } else {
         logAI('解析AI返回的JSON失败，返回原始分析结果', getVLModelName(), sessionId)
       }
 
-      // 4. 严格验证选择器
-      const validSelectorSet = new Set<string>()
-      ;(elements.inputs || []).forEach((el: any) => validSelectorSet.add(el.selector))
-      ;(elements.selects || []).forEach((el: any) => validSelectorSet.add(el.selector))
-      ;(elements.buttons || []).forEach((el: any) => validSelectorSet.add(el.selector))
-
-      const rawCount = testSteps.length
-      testSteps = testSteps.filter((step: any) => {
-        const selector = step?.selector
-        if (!selector || typeof selector !== 'string') return false
-        const isValid = validSelectorSet.has(selector)
-        if (!isValid) {
-          logAI(`⚠️ 选择器无效，已过滤: ${selector}`, getVLModelName(), sessionId)
-        }
-        return isValid
-      })
-      logAI(`✅ 选择器验证通过 ${testSteps.length}/${rawCount} 个测试步骤`, getVLModelName(), sessionId)
+      // 4. 严格验证选择器（使用工具函数）
+      const validSelectorSet = buildValidSelectorSet(elements)
+      testSteps = validateTestStepSelectors(testSteps, validSelectorSet, sessionId)
 
       return {
         success: true,
@@ -461,41 +527,19 @@ ${context.consoleErrors.slice(0, 5).map((e: any) => `- ${e.text}`).join('\n')}
 
       logAI(`AI分析完成: ${aiAnalysis.substring(0, 300)}...`, getModelName(), sessionId)
 
+      // 解析测试步骤（使用健壮的JSON提取）
       let testSteps: any[] = []
-      try {
-        const jsonMatch = aiAnalysis.match(/\{[\s\S]*\}/)
-        if (jsonMatch) {
-          const parsed = JSON.parse(jsonMatch[0])
-          testSteps = parsed.testSteps || []
-        }
-      } catch (e) {
+      const parsed = extractJSONFromText(aiAnalysis)
+      if (parsed) {
+        testSteps = parsed.testSteps || []
+      } else {
         logAI('解析AI返回的JSON失败，返回原始分析结果', getModelName(), sessionId)
       }
 
-      // 严格验证每个步骤的选择器：只允许使用MCP真实返回的selector（global + areas）
-      const validSelectorSet = new Set<string>()
-      ;(elements.inputs || []).forEach(el => validSelectorSet.add(el.selector))
-      ;(elements.selects || []).forEach(el => validSelectorSet.add(el.selector))
-      ;(elements.buttons || []).forEach(el => validSelectorSet.add(el.selector))
-      ;(areas || []).forEach(area => {
-        ;(area.elements?.inputs || []).forEach(el => validSelectorSet.add(el.selector))
-        ;(area.elements?.selects || []).forEach(el => validSelectorSet.add(el.selector))
-        ;(area.elements?.buttons || []).forEach(el => validSelectorSet.add(el.selector))
-      })
-
-      const rawCount = testSteps.length
-      testSteps = (testSteps || []).filter((step: any) => {
-        const selector = step?.selector
-        if (!selector || typeof selector !== 'string') {
-          return false
-        }
-        const isValid = validSelectorSet.has(selector)
-        if (!isValid) {
-          logAI(`⚠️ 选择器无效，已过滤: ${selector}`, getModelName(), sessionId)
-        }
-        return isValid
-      })
-      logAI(`✅ 选择器验证通过 ${testSteps.length}/${rawCount} 个测试步骤 (depth=${depth})`, getModelName(), sessionId)
+      // 严格验证每个步骤的选择器（使用工具函数）
+      const validSelectorSet = buildValidSelectorSet(elements, areas)
+      testSteps = validateTestStepSelectors(testSteps, validSelectorSet, sessionId)
+      logAI(`选择器验证完成 (depth=${depth})`, getModelName(), sessionId)
 
       return {
         success: true,
@@ -598,30 +642,27 @@ ${validSelectors.buttons.map(s => `- ${s}`).join('\n')}
     )
 
     let testSteps: any[] = []
-    try {
-      const jsonMatch = aiAnalysis.match(/\{[\s\S]*\}/)
-      if (jsonMatch) {
-        const parsed = JSON.parse(jsonMatch[0])
-        const rawTestSteps = parsed.testSteps || []
+    const parsed = extractJSONFromText(aiAnalysis)
+    if (parsed) {
+      const rawTestSteps = parsed.testSteps || []
+      
+      // 严格验证每个步骤的选择器
+      testSteps = rawTestSteps.filter((step: any) => {
+        const selector = step.selector
+        const isValid = validSelectors.inputs.includes(selector) || 
+                      validSelectors.selects.includes(selector) || 
+                      validSelectors.buttons.includes(selector)
         
-        // 严格验证每个步骤的选择器
-        testSteps = rawTestSteps.filter((step: any) => {
-          const selector = step.selector
-          const isValid = validSelectors.inputs.includes(selector) || 
-                        validSelectors.selects.includes(selector) || 
-                        validSelectors.buttons.includes(selector)
-          
-          if (!isValid) {
-            logAI(`⚠️ 选择器无效，已过滤: ${selector}`, getModelName(), sessionId)
-            return false
-          }
-          return true
-        })
-        
-        logAI(`✅ 验证通过 ${testSteps.length}/${rawTestSteps.length} 个测试步骤`, getModelName(), sessionId)
-      }
-    } catch (e) {
-      logAI(`解析AI响应失败: ${e}`, getModelName(), sessionId)
+        if (!isValid) {
+          logAI(`⚠️ 选择器无效，已过滤: ${selector}`, getModelName(), sessionId)
+          return false
+        }
+        return true
+      })
+      
+      logAI(`✅ 验证通过 ${testSteps.length}/${rawTestSteps.length} 个测试步骤`, getModelName(), sessionId)
+    } else {
+      logAI(`解析AI响应失败`, getModelName(), sessionId)
     }
 
     // 如果没有有效的测试步骤，生成基础测试
@@ -714,29 +755,26 @@ ${validSelectors.buttons.map(s => `- ${s}`).join('\n')}
     )
 
     let testSteps: any[] = []
-    try {
-      const jsonMatch = aiAnalysis.match(/\{[\s\S]*\}/)
-      if (jsonMatch) {
-        const parsed = JSON.parse(jsonMatch[0])
-        const rawTestSteps = parsed.testSteps || []
+    const parsed = extractJSONFromText(aiAnalysis)
+    if (parsed) {
+      const rawTestSteps = parsed.testSteps || []
+      
+      // 严格验证每个步骤的选择器
+      testSteps = rawTestSteps.filter((step: any) => {
+        const selector = step.selector
+        const isValid = validSelectors.inputs.includes(selector) || 
+                      validSelectors.buttons.includes(selector)
         
-        // 严格验证每个步骤的选择器
-        testSteps = rawTestSteps.filter((step: any) => {
-          const selector = step.selector
-          const isValid = validSelectors.inputs.includes(selector) || 
-                        validSelectors.buttons.includes(selector)
-          
-          if (!isValid) {
-            logAI(`⚠️ 选择器无效，已过滤: ${selector}`, getModelName(), sessionId)
-            return false
-          }
-          return true
-        })
-        
-        logAI(`✅ 验证通过 ${testSteps.length}/${rawTestSteps.length} 个测试步骤`, getModelName(), sessionId)
-      }
-    } catch (e) {
-      logAI(`解析AI响应失败: ${e}`, getModelName(), sessionId)
+        if (!isValid) {
+          logAI(`⚠️ 选择器无效，已过滤: ${selector}`, getModelName(), sessionId)
+          return false
+        }
+        return true
+      })
+      
+      logAI(`✅ 验证通过 ${testSteps.length}/${rawTestSteps.length} 个测试步骤`, getModelName(), sessionId)
+    } else {
+      logAI(`解析AI响应失败`, getModelName(), sessionId)
     }
 
     // 如果没有有效的测试步骤，生成基础测试
